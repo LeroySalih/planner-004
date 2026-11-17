@@ -81,6 +81,8 @@ dino_schema_*.sql
 
 # database dumps
 backups/
+!src/app/admin/backups/
+!src/lib/backups/
 recovery/
 /fold-results
 /powerpoint-copy-results

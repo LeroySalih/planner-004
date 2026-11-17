@@ -9,6 +9,9 @@
 #   backup-db.sh          daily: timestamped dumps in ./backups, kept 7 days
 #   backup-db.sh hourly   one dump per database in ./backups/hourly, replaced
 #                         each run, so only the most recent hour survives
+#   backup-db.sh manual   like daily (timestamped, so the daily prune covers it)
+#                         but prunes nothing, and prints `WROTE <file name>`
+#                         per dump for backup-on-request.sh to record
 #
 # Both run from host cron; push-to-coding.sh copies the results off-server.
 set -euo pipefail
@@ -23,8 +26,8 @@ RETENTION_DAYS=7        # delete daily dumps older than this
 MODE="${1:-daily}"
 
 case "$MODE" in
-  daily|hourly) ;;
-  *) echo "usage: $0 [daily|hourly]" >&2; exit 2 ;;
+  daily|hourly|manual) ;;
+  *) echo "usage: $0 [daily|hourly|manual]" >&2; exit 2 ;;
 esac
 
 cd "$PROJECT_DIR"
@@ -50,6 +53,9 @@ docker compose -f compose.yml exec -T db bash -c '
       | gpg --batch --yes --pinentry-mode loopback --symmetric --cipher-algo AES256 \
             --passphrase "$BACKUP_PASSPHRASE" -o "${out}.tmp"
     mv "${out}.tmp" "$out"
+    if [ "$mode" = manual ]; then
+      echo "WROTE ${out##*/}"
+    fi
   done
   if [ "$mode" = daily ]; then
     echo "[$(date)] pruning backups older than '"$RETENTION_DAYS"' days"

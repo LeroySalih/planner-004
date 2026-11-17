@@ -717,6 +717,29 @@ Gather is concurrency-sensitive: `processNextQueueItem` runs a batch through
 together. `recordCriterionMark` takes `select … for update` on the submission
 row before deciding whether the set is complete.
 
+## Manual backup to the dev server
+
+`/admin/backups` (admin only) has **Back up now and send to dev server**. The web
+container has no Docker socket and no SSH key, and must not get them, so the
+page only inserts a `backup_requests` row (migration 145; at most one pending or
+running, by a partial unique index). `scripts/backup-on-request.sh`, run by the
+**prod host's** cron every minute, claims it, runs `backup-db.sh manual`
+(timestamped, encrypted dumps of dino + n8n in `backups/`, not pruned by that run
+but covered by the daily 7-day prune) and `push-to-coding.sh dumps <timestamp>`
+(only those dumps; waits up to 10 minutes for the hourly push's lock instead of
+skipping), then records `done` with file names and sizes, or `error` with the
+last lines of output. A request running for 30 minutes is marked as an error.
+The page polls every 5 s while one is open and flags a request still pending
+after 10 minutes, which means the cron line is missing. Code:
+`src/lib/backups/store.ts`, `src/lib/server-actions/backups.ts`.
+`BACKUP_REQUEST_SKIP_PUSH=1` skips the push, for trying it on dev.
+
+One-time install on prod (after `scripts/migrate.sh` has applied 145):
+
+```
+* * * * * ~/planner-004/scripts/backup-on-request.sh >> ~/planner-004/backups/request.log 2>&1
+```
+
 ## Scoring Conventions
 
 **Always use `compute_submission_base_score(body, activity_type)`** when computing a submission score in SQL. This is the canonical PostgreSQL function (defined in `schema.sql`) and handles all score fields in the correct priority order:

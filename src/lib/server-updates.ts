@@ -540,3 +540,6 @@ export { readYearGroupLevelsAction, saveYearGroupLevelsAction } from './server-a
 
 export { readUnitAuditAction } from './server-actions/unit-audits'
 export { readLessonUnderstandingAction, recordLessonUnderstandingAction } from './server-actions/lesson-understanding'
+
+export { readBackupRequestsAction, requestBackupAction } from './server-actions/backups'
+export type { BackupRequest, BackupFile, BackupRequestStatus } from './backups/store'
