@@ -82,11 +82,13 @@ import {
 import { LessonActivityView } from "@/components/lessons/activity-view"
 import { AssessmentPaperEditor } from "@/components/lessons/assessment-paper-editor"
 import { PowerPointAssessmentEditor } from "@/components/lessons/powerpoint-assessment-editor"
-import { defaultPowerPointAssessmentBody } from "@/lib/powerpoint-assessment/evidence-spec"
+import { defaultPracticalBody } from "@/lib/powerpoint-assessment/evidence-spec"
+import type { PracticalAssessmentType } from "@/lib/practical-assessment/types"
 import { MediaImage } from "@/components/ui/media-image"
 import {
   isExperimentalActivityType,
   isMothballedActivityType,
+  isPracticalAssessmentType,
   isQuestionMarkedActivityType,
   isScorableActivityType,
   SCORABLE_ACTIVITY_TYPES,
@@ -130,6 +132,7 @@ const ACTIVITY_TYPES = [
   { value: "mark-worksheet", label: "Upload Worksheet", group: "interactive" },
   { value: "assessment-paper", label: "Assessment Paper", group: "interactive" },
   { value: "powerpoint-assessment", label: "PowerPoint Assessment", group: "interactive" },
+  { value: "database-assessment", label: "Database Assessment", group: "interactive" },
   { value: "multiple-choice-question", label: "Multiple Choice Question", group: "interactive" },
   { value: "matcher", label: "Matcher", group: "interactive" },
   { value: "group-items", label: "Group Items", group: "interactive" },
@@ -903,7 +906,7 @@ useEffect(() => {
           // the sheet reopens on it to carry on.
           toast.success("Activity created", {
             description:
-              type === "powerpoint-assessment"
+              isPracticalAssessmentType(type)
                 ? "Now set up the files pupils hand in, the question paper and the questions."
                 : "Now add the question paper and questions.",
           })
@@ -2371,7 +2374,7 @@ function LessonActivityEditorSheet({
   const [isProcessing, setIsProcessing] = useState(false)
   const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([])
   const [activityFiles, setActivityFiles] = useState<ActivityFileInfo[]>([])
-  // A PowerPoint assessment's template and reference files are current files only.
+  // A practical assessment's template, starting database and reference files are current files only.
   const currentActivityFileNames = useMemo(
     () => activityFiles.filter((file) => !file.past_version).map((file) => file.name),
     [activityFiles],
@@ -3927,8 +3930,8 @@ function LessonActivityEditorSheet({
       return
     }
 
-    if (type === "powerpoint-assessment") {
-      // Its task files hold the evidence template and reference files.
+    if (isPracticalAssessmentType(type)) {
+      // Its task files hold the evidence template, the starting database and reference files.
       if (activity) {
         void refreshActivityFiles(activity.activity_id)
       } else {
@@ -4428,11 +4431,13 @@ function LessonActivityEditorSheet({
     } else if (type === "assessment-paper") {
       // The server keeps the paper files and name area already on the body.
       bodyData = { instructions: assessmentInstructions.trim() }
-    } else if (type === "powerpoint-assessment") {
-      // The upload slots and template save from their own editor (the server
-      // keeps what this does not send); a new one starts with the presentation.
+    } else if (isPracticalAssessmentType(type)) {
+      // The upload slots, template and starting database save from their own
+      // editor (the server keeps what this does not send); a new one starts
+      // with its type's default slots (the presentation, or the database and
+      // the evidence document).
       bodyData = isCreateMode
-        ? { instructions: assessmentInstructions.trim(), ...defaultPowerPointAssessmentBody() }
+        ? { instructions: assessmentInstructions.trim(), ...defaultPracticalBody(type as PracticalAssessmentType) }
         : { instructions: assessmentInstructions.trim() }
     } else if (type === "share-my-work") {
       if (!shareMyWorkName.trim()) {
@@ -4672,12 +4677,12 @@ function LessonActivityEditorSheet({
                 </p>
               )}
             </div>
-          ) : type === "powerpoint-assessment" ? (
+          ) : isPracticalAssessmentType(type) ? (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="powerpoint-assessment-instructions">Instructions</Label>
+                <Label htmlFor={`${type}-instructions`}>Instructions</Label>
                 <Textarea
-                  id="powerpoint-assessment-instructions"
+                  id={`${type}-instructions`}
                   value={assessmentInstructions}
                   onChange={(event) => setAssessmentInstructions(event.target.value)}
                   placeholder="What pupils need to know about this task"
@@ -4685,13 +4690,14 @@ function LessonActivityEditorSheet({
                   disabled={isPending}
                 />
                 <p className="text-xs text-muted-foreground">
-                  The marks and success criteria come from the questions below. Upload slots, the evidence template,
-                  images, questions and files save with their own buttons; Save changes saves the title and
-                  instructions.
+                  {type === "database-assessment"
+                    ? "The marks and success criteria come from the questions below. Upload slots, the evidence template, the starting database, questions and files save with their own buttons; Save changes saves the title and instructions."
+                    : "The marks and success criteria come from the questions below. Upload slots, the evidence template, images, questions and files save with their own buttons; Save changes saves the title and instructions."}
                 </p>
               </div>
               {activity ? (
                 <PowerPointAssessmentEditor
+                  type={type as PracticalAssessmentType}
                   unitId={unitId}
                   lessonId={lessonId}
                   activity={activity}
@@ -4703,8 +4709,9 @@ function LessonActivityEditorSheet({
                 />
               ) : (
                 <p className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-                  Create the activity first (it starts with one required presentation slot), then set up the files
-                  pupils hand in, the question paper and the questions.
+                  {type === "database-assessment"
+                    ? "Create the activity first (it starts with a required database slot and a required evidence document slot), then set up the files pupils hand in, the starting database, the question paper and the questions."
+                    : "Create the activity first (it starts with one required presentation slot), then set up the files pupils hand in, the question paper and the questions."}
                 </p>
               )}
             </div>
@@ -6009,14 +6016,15 @@ function LessonActivityEditorSheet({
             </div>
           ) : null}
 
-          {type === "file-download" || type === "upload-file" || (type === "powerpoint-assessment" && activity) ? (
+          {type === "file-download" || type === "upload-file" || (isPracticalAssessmentType(type) && activity) ? (
             <div className="space-y-3 rounded-md border border-border p-4">
-              {type === "powerpoint-assessment" ? (
+              {isPracticalAssessmentType(type) ? (
                 <div className="space-y-1">
                   <h3 className="text-sm font-semibold text-foreground">Task files</h3>
                   <p className="text-xs text-muted-foreground">
-                    Files pupils download with the task, the blank evidence template and any reference files the
-                    marker reads.
+                    {type === "database-assessment"
+                      ? "Files pupils download with the task (the starting database and the blank evidence template) and any reference files the marker reads."
+                      : "Files pupils download with the task, the blank evidence template and any reference files the marker reads."}
                   </p>
                 </div>
               ) : null}
@@ -6141,7 +6149,7 @@ function LessonActivityEditorSheet({
           type !== "upload-worksheet" &&
           type !== "feedback" &&
           type !== "assessment-paper" &&
-          type !== "powerpoint-assessment" &&
+          !isPracticalAssessmentType(type) &&
           type !== "sketch-render" ? (
             <div className="space-y-2">
               <Label htmlFor="activity-json">Activity details</Label>

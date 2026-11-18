@@ -1,14 +1,16 @@
-// Create a PowerPoint assessment activity in a lesson from a spec file
-// (scripts/powerpoint-assessments/*.json): its upload slots, supplied images,
-// activity files, question paper, mark scheme and questions.
+// Create a practical assessment activity (PowerPoint or database) in a lesson
+// from a spec file (scripts/powerpoint-assessments/*.json or
+// scripts/database-assessments/*.json): its upload slots, supplied images
+// (PowerPoint only), activity files, starting database (database only),
+// question paper, mark scheme and questions.
 //
 //   npx tsx scripts/setup-powerpoint-assessment.ts --spec <spec.json> [--apply] [--out <result.json>]
 //
 // Run it through scripts/setup-powerpoint-assessment.sh, which runs it beside
 // the app as the app's own user. Without --apply nothing is written: the spec
 // is checked against the database and the files (lesson, data files, papers,
-// success criteria, evidence sources, EVIDENCE template headings) and what
-// would be done is reported.
+// success criteria, evidence sources, EVIDENCE template headings, the
+// starting database's tables) and what would be done is reported.
 //
 // The activity is found by lesson and title, so re-running is safe:
 //   - an existing activity is reused, never duplicated;
@@ -18,9 +20,12 @@
 //     rewrites questions pupils have been marked against.
 //
 // Spec:
-//   { "lesson_id", "title", "upload_slots": [...], "data_activity_id",
-//     "supplied_images": ["LOGO.png", ...], "activity_files": ["EVIDENCE.docx", ...],
+//   { "type": "powerpoint-assessment" | "database-assessment",               optional, default PowerPoint
+//     "lesson_id", "title", "upload_slots": [...], "data_activity_id",
+//     "supplied_images": ["LOGO.png", ...],                                    PowerPoint only; [] for a database
+//     "activity_files": ["EVIDENCE.docx", ...],
 //     "evidence_template_file": "EVIDENCE.docx",
+//     "starting_database_file": "X.accdb",                     optional, database only; one of activity_files
 //     "question_paper": "lessons/<lesson>/.../x.pdf", "mark_scheme": "lessons/<lesson>/x.pdf",
 //     "copy_mapping": "scripts/powerpoint-mappings/x.json",                   optional, used by the .sh
 //     "questions": [ { "label", "max_marks", "question_text", "mark_scheme", "marking",
@@ -32,12 +37,15 @@ import { readFile, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 import { query } from "@/lib/db"
+import { isPracticalAssessmentType } from "@/dino.config"
+import { readAccessDatabase } from "@/lib/accdb/read"
 import { createActivity } from "@/lib/mcp/activities"
 import { storePaperFile } from "@/lib/assessment-paper/files"
 import { readAssessmentQuestions, setAssessmentQuestions, type QuestionMarking } from "@/lib/assessment-paper/store"
 import { listSuppliedImages, storeSuppliedImage } from "@/lib/powerpoint-assessment/files"
-import { checkActivityEvidenceTemplate } from "@/lib/powerpoint-assessment/editor"
-import { evidenceHeading, powerPointBodyProblem, validateQuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
+import { checkActivityEvidenceTemplate, checkActivityStartingDatabase } from "@/lib/powerpoint-assessment/editor"
+import { evidenceHeading, practicalBodyProblem, validateQuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
+import { practicalTypeConfig, type PracticalAssessmentType } from "@/lib/practical-assessment/types"
 import { checkEvidenceTemplate } from "@/lib/docx/evidence"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
@@ -53,6 +61,7 @@ type SpecQuestion = {
   evidence: unknown[]
 }
 type Spec = {
+  type?: PracticalAssessmentType
   lesson_id: string
   title: string
   upload_slots: unknown[]
@@ -60,6 +69,7 @@ type Spec = {
   supplied_images: string[]
   activity_files: string[]
   evidence_template_file?: string
+  starting_database_file?: string
   question_paper: string
   mark_scheme: string
   copy_mapping?: string
@@ -88,12 +98,16 @@ function bodyFor(spec: Spec) {
   return {
     uploadSlots: spec.upload_slots,
     ...(spec.evidence_template_file ? { evidenceTemplateFile: spec.evidence_template_file } : {}),
+    ...(spec.starting_database_file ? { startingDatabaseFile: spec.starting_database_file } : {}),
   }
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const spec = JSON.parse(await readFile(args.spec, "utf8")) as Spec
+  const type = spec.type ?? "powerpoint-assessment"
+  if (!isPracticalAssessmentType(type)) throw new Error(`Spec type "${type}" is not a practical assessment type`)
+  const config = practicalTypeConfig(type)
   const problems: string[] = []
   const actions: string[] = []
   const out: Record<string, unknown> = { spec: args.spec, mode: args.apply ? "apply" : "dry-run", lesson_id: spec.lesson_id, title: spec.title }
@@ -117,8 +131,35 @@ async function main() {
     if (!(await exists(path.join(FILES_ROOT, rel)))) problems.push(`Missing ${label} at files/${rel}`)
   }
 
-  const bodyProblem = powerPointBodyProblem(bodyFor(spec))
+  const bodyProblem = practicalBodyProblem(bodyFor(spec), type)
   if (bodyProblem) problems.push(bodyProblem)
+  if (!config.hasSuppliedImages && spec.supplied_images.length > 0) {
+    problems.push(`A ${config.labelLower} has no supplied images; leave supplied_images empty`)
+  }
+  if (spec.starting_database_file) {
+    if (!config.hasStartingDatabase) {
+      problems.push(`A ${config.labelLower} has no starting database; leave starting_database_file out`)
+    } else if (!spec.activity_files.includes(spec.starting_database_file)) {
+      problems.push(`starting_database_file ${spec.starting_database_file} is not in activity_files`)
+    } else {
+      const databasePath = path.join(dataDir, spec.starting_database_file)
+      if (await exists(databasePath)) {
+        try {
+          const snapshot = await readAccessDatabase(await readFile(databasePath))
+          out.startingDatabase = {
+            file: spec.starting_database_file,
+            tables: snapshot.tables.map((table) => ({ name: table.name, rows: table.rowCount })),
+            queries: snapshot.queries.map((q) => q.name),
+            forms: snapshot.forms.map((f) => f.name),
+            reports: snapshot.reports.map((r) => r.name),
+            warnings: snapshot.warnings,
+          }
+        } catch (error) {
+          problems.push(`Starting database ${spec.starting_database_file} cannot be read: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    }
+  }
 
   const labels = spec.questions.map((q) => q.label)
   const duplicates = labels.filter((l, i) => labels.indexOf(l) !== i)
@@ -126,6 +167,7 @@ async function main() {
   const evidenceCheck = validateQuestionEvidence(
     spec.questions.map((q) => ({ label: q.label, evidence: q.evidence })) as Parameters<typeof validateQuestionEvidence>[0],
     bodyFor(spec),
+    type,
   )
   problems.push(...evidenceCheck.errors)
 
@@ -157,8 +199,8 @@ async function main() {
   out.marks = spec.questions.reduce((sum, q) => sum + q.max_marks, 0)
 
   const { rows: existing } = await query<{ activity_id: string; body_data: Record<string, unknown> | null }>(
-    "select activity_id, body_data from activities where lesson_id = $1 and title = $2 and type = 'powerpoint-assessment' and active is not false",
-    [spec.lesson_id, spec.title],
+    "select activity_id, body_data from activities where lesson_id = $1 and title = $2 and type = $3 and active is not false",
+    [spec.lesson_id, spec.title, type],
   )
   if (existing.length > 1) problems.push(`${existing.length} activities named "${spec.title}" in this lesson`)
 
@@ -176,14 +218,14 @@ async function main() {
   else {
     actions.push("create the activity")
     if (args.apply) {
-      const created = await createActivity(spec.lesson_id, "powerpoint-assessment" as never, spec.title, bodyFor(spec))
+      const created = await createActivity(spec.lesson_id, type as never, spec.title, bodyFor(spec))
       activityId = created.activity_id
       actions.push(`created ${activityId}`)
     }
   }
   out.activity_id = activityId
 
-  const haveImages = new Set(activityId ? (await listSuppliedImages(activityId)).map((i) => i.name) : [])
+  const haveImages = new Set(activityId && config.hasSuppliedImages ? (await listSuppliedImages(activityId)).map((i) => i.name) : [])
   const imageWarnings: Record<string, string[]> = {}
   for (const file of spec.supplied_images) {
     if (haveImages.has(file.replace(/\.[^.]+$/, ""))) continue
@@ -204,7 +246,9 @@ async function main() {
       const { error } = await storage.upload(target, await readFile(path.join(dataDir, name)), {
         contentType: name.endsWith(".docx")
           ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          : "application/octet-stream",
+          : name.toLowerCase().endsWith(".accdb")
+            ? "application/msaccess"
+            : "application/octet-stream",
         uploadedBy: "script",
         originalPath: name,
       })
@@ -247,11 +291,14 @@ async function main() {
     const { rows } = await query<{ max_marks: number | null }>("select max_marks from activities where activity_id = $1", [activityId])
     out.saved = { questions: saved.length, marks: saved.reduce((s, q) => s + q.maxMarks, 0), max_marks: rows[0]?.max_marks }
     out.templateCheck = await checkActivityEvidenceTemplate(activityId)
+    if (spec.starting_database_file) out.startingDatabaseCheck = await checkActivityStartingDatabase(activityId)
   }
   out.actions = actions
   await finish(args.out, out)
 
   console.log(`${spec.title} — lesson "${out.lesson}"`)
+  const starting = out.startingDatabase as { file: string; tables: Array<{ name: string; rows: number }> } | undefined
+  if (starting) console.log(`  starting database ${starting.file}: ${starting.tables.map((t) => `${t.name} (${t.rows})`).join(", ")}`)
   for (const action of actions) console.log(`  ${args.apply ? "done" : "would"}: ${action}`)
   for (const [file, warnings] of Object.entries(imageWarnings)) console.log(`  warning (${file}): ${warnings.join("; ")}`)
 }

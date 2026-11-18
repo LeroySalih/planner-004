@@ -1,6 +1,7 @@
 import { Suspense } from "react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import { CalendarRange } from "lucide-react"
 
 import {
   clearSigninThrottleForPupilAction,
@@ -12,6 +13,7 @@ import {
   updateGroupMemberRoleAction,
 } from "@/lib/server-updates"
 import { hasRole, requireTeacherProfile } from "@/lib/auth"
+import { Button } from "@/components/ui/button"
 
 import type { PupilActionState } from "./pupil-action-state"
 import { GroupPupilList, type PupilMember } from "./group-pupil-list"
@@ -228,6 +230,12 @@ export default async function GroupDetailPage({
             <div className="flex items-start justify-between">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Group</p>
               <div className="flex items-center gap-2">
+                <Button asChild variant="outline" size="sm" className="flex items-center gap-2 bg-white text-black hover:bg-slate-100">
+                  <Link href={`/sow/${encodeURIComponent(group.group_id)}`}>
+                    <CalendarRange className="h-4 w-4" />
+                    Scheme of Work
+                  </Link>
+                </Button>
                 {isAdmin ? <AddMemberDialog groupId={group.group_id} /> : null}
                 {isAdmin ? <AddTeacherDialog groupId={group.group_id} /> : null}
                 <ImportPupilsDialog targetGroupId={group.group_id} availableGroups={availableGroups} />

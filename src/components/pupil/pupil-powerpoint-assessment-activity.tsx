@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { AssessmentQuestionFeedback } from "@/components/pupil/assessment-question-feedback"
+import { DATABASE_MESSAGES } from "@/lib/accdb/errors"
 import type { PupilPowerPointSlot, PupilPowerPointView } from "@/lib/powerpoint-assessment/pupil-view"
 import {
   handInPowerPointAssessmentAction,
@@ -45,11 +46,19 @@ const ACCEPT: Record<PupilPowerPointSlot["kind"], string> = {
   pptx: ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation",
   pdf: ".pdf,application/pdf",
   docx: ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  accdb: ".accdb,application/vnd.ms-access,application/msaccess",
 }
 const KIND_NAME: Record<PupilPowerPointSlot["kind"], string> = {
   pptx: "a PowerPoint .pptx file",
   pdf: "a PDF",
   docx: "a Word .docx file",
+  accdb: "an Access database (.accdb) file",
+}
+const SLOT_BADGE: Record<PupilPowerPointSlot["kind"], string> = {
+  pptx: ".pptx",
+  pdf: "PDF",
+  docx: ".docx",
+  accdb: ".accdb",
 }
 
 const LINK_CLASS =
@@ -81,8 +90,8 @@ function extensionOf(name: string) {
 }
 
 /**
- * A PowerPoint assessment on the pupil's lesson page: the task and the files
- * it needs, one upload per file the pupil hands in, and Hand in, which starts
+ * A practical assessment (PowerPoint or database) on the pupil's lesson page:
+ * the task and the files it needs, one upload per file the pupil hands in, and Hand in, which starts
  * the marking. After hand-in the files are read-only here (a teacher can
  * still change them from the results page). Once the lesson's feedback is
  * released: the total, the teacher's comment and the feedback task by task.
@@ -132,6 +141,19 @@ export function PupilPowerPointAssessmentActivity({
   const busy = busySlot !== null || handingIn
 
   const uploadFile = async (slot: PupilPowerPointSlot, file: File) => {
+    // Access's lock file and old .mdb databases are refused with what to do instead; the server checks again.
+    const accessRefusal =
+      slot.kind !== "accdb"
+        ? null
+        : extensionOf(file.name) === "laccdb"
+          ? DATABASE_MESSAGES.lockFile
+          : extensionOf(file.name) === "mdb"
+            ? DATABASE_MESSAGES.mdb
+            : null
+    if (accessRefusal) {
+      toast.error(`Upload failed for ${file.name}`, { description: accessRefusal })
+      return
+    }
     if (extensionOf(file.name) !== slot.kind) {
       toast.error(`${slot.label} must be ${KIND_NAME[slot.kind]}`, { description: `${file.name} is not.` })
       return
@@ -402,7 +424,7 @@ function SlotRow({
         <p className="font-semibold">
           {slot.label}
           <span className="ml-2 text-sm font-normal text-la-muted">
-            {slot.kind === "pptx" ? ".pptx" : slot.kind === "pdf" ? "PDF" : ".docx"}
+            {SLOT_BADGE[slot.kind]}
             {slot.required ? " · required" : " · if you have one"}
           </span>
         </p>

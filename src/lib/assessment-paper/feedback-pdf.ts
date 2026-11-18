@@ -3,7 +3,7 @@ import "server-only"
 import sharp from "sharp"
 
 import { query } from "@/lib/db"
-import { isPowerPointAssessmentType } from "@/dino.config"
+import { isPracticalAssessmentType } from "@/dino.config"
 import { pupilHasSatAssessment, readMarkablePages } from "@/lib/assessment-paper/files"
 import {
   pupilFeedbackVisible,
@@ -21,6 +21,7 @@ import {
 import { isLessonLockedForUser } from "@/lib/lesson-lock"
 import { powerPointMarkState, powerPointQuestionShownToPupil } from "@/lib/assessment-paper/pupil-feedback"
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
+import { practicalTypeConfig } from "@/lib/practical-assessment/types"
 import { AssessmentPaperActivityBodySchema } from "@/types"
 
 // What a pupil's feedback PDF on an assessment paper holds, read fresh when it
@@ -67,7 +68,7 @@ export type FeedbackPdfData = {
   overallFeedback: string | null
   /** Folded in from the old assessments module: marks and feedback only. */
   folded: boolean
-  /** A PowerPoint assessment: the pupil's work is their files, not a script. */
+  /** A practical assessment (PowerPoint or database): the pupil's work is their files, not a script. */
   powerPoint: boolean
   questions: FeedbackPdfQuestion[]
   /**
@@ -98,7 +99,7 @@ export async function mayDownloadAssessmentFeedback(
     [activityId],
   )
   if (!rows[0]) return false
-  if (isPowerPointAssessmentType(rows[0].type)) {
+  if (isPracticalAssessmentType(rows[0].type)) {
     if (!(await powerPointFeedbackReady(activityId, pupilId))) return false
     if (await isLessonLockedForUser(pupilId, rows[0].lesson_id)) return false
   } else if (!(await pupilHasSatAssessment(activityId, pupilId))) {
@@ -132,7 +133,7 @@ export async function readAssessmentFeedbackPdfData(
   const result = await readAssessmentPaperResult(activityId, pupilId)
 
   const [{ rows: activityRows }, { rows: profileRows }, visibility, overallFeedback] = await Promise.all([
-    query<{ title: string | null; body_data: unknown }>("select title, body_data from activities where activity_id = $1", [
+    query<{ title: string | null; type: string | null; body_data: unknown }>("select title, type, body_data from activities where activity_id = $1", [
       activityId,
     ]),
     query<{ first_name: string | null; last_name: string | null }>(
@@ -184,7 +185,7 @@ export async function readAssessmentFeedbackPdfData(
   )
 
   return {
-    paperTitle: activityRows[0]?.title?.trim() || (powerPoint ? "PowerPoint assessment" : "Assessment paper"),
+    paperTitle: activityRows[0]?.title?.trim() || (powerPoint ? practicalTypeConfig(activityRows[0]?.type).label : "Assessment paper"),
     pupilName: [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Pupil",
     className: classNames.length > 0 ? classNames.join(", ") : null,
     maxMarks: result.maxMarks,

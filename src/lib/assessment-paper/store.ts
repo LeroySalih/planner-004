@@ -1,10 +1,17 @@
 import "server-only"
 
 import { query, withDbClient } from "@/lib/db"
-import { isAssessmentPaperType, isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
+import {
+  PRACTICAL_ASSESSMENT_TYPES,
+  isAssessmentPaperType,
+  isPracticalAssessmentType,
+  isQuestionMarkedActivityType,
+  normalizeActivityType,
+} from "@/dino.config"
 import { assertScAllowedForActivity, type Queryable } from "@/lib/curriculum/unit-curriculum-guard"
 import { recalculateAssessmentPaperMaxMarks } from "@/lib/scoring/derive-max-marks"
 import { validateQuestionEvidence, type QuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
+import type { PracticalAssessmentType } from "@/lib/practical-assessment/types"
 
 // An assessment paper is marked question by question. Each question splits
 // its marks across the success criteria it tests (Q3 = 4 -> SC-A 2 + SC-B 2),
@@ -57,7 +64,7 @@ export interface SubmissionQuestionAnswerInput {
   status: AnswerStatus
   /**
    * A blank answer only: why it is blank, in plain words for the pupil (a
-   * PowerPoint assessment's reader says which file, slide or heading was
+   * practical assessment's reader says which file, slide or heading was
    * missing). It is the 0's comment instead of NO_ANSWER_COMMENT. Never
    * stored with the answer.
    */
@@ -84,7 +91,7 @@ export interface AssessmentQuestion {
   marking: QuestionMarking
   /** Error carried forward: the earlier question whose answer the marker also sees. */
   dependsOnQuestionId: string | null
-  /** PowerPoint assessment: where the question's evidence comes from. Always [] on an assessment paper. */
+  /** Practical assessment (PowerPoint or database): where the question's evidence comes from. Always [] on an assessment paper. */
   evidence: QuestionEvidence[]
   criteria: AssessmentQuestionCriterion[]
 }
@@ -99,7 +106,7 @@ export interface AssessmentQuestionInput {
   /** The label of an earlier question on the paper, or null for none. Omitted: unchanged. */
   dependsOn?: string | null
   /**
-   * PowerPoint assessment: the question's evidence sources
+   * Practical assessment (PowerPoint or database): the question's evidence sources
    * (src/lib/powerpoint-assessment/evidence-spec.ts). Omitted: unchanged (a
    * new question gets none). An assessment paper takes none.
    */
@@ -230,9 +237,10 @@ function validateQuestions(questions: AssessmentQuestionInput[]): AssessmentQues
 
 /**
  * The evidence each question will have once saved, checked as a whole: what
- * the input gives, else what is stored. A PowerPoint assessment's are
- * validated against the activity's upload slots; an assessment paper takes
- * none. Throws every problem at once, before anything is written.
+ * the input gives, else what is stored. A practical assessment's (PowerPoint
+ * or database) are validated against the activity's upload slots and the
+ * sources its type takes; an assessment paper takes none. Throws every
+ * problem at once, before anything is written.
  */
 async function checkQuestionEvidence(
   client: Queryable,
@@ -240,7 +248,7 @@ async function checkQuestionEvidence(
   activity: { type: string | null; body_data: unknown },
   questions: AssessmentQuestionInput[],
 ): Promise<QuestionEvidence[][]> {
-  if (!isPowerPointAssessmentType(activity.type)) {
+  if (!isPracticalAssessmentType(activity.type)) {
     const given = questions.filter((q) => q.evidence !== undefined && (!Array.isArray(q.evidence) || q.evidence.length > 0))
     if (given.length > 0) {
       throw new Error(
@@ -262,6 +270,7 @@ async function checkQuestionEvidence(
       evidence: q.evidence ?? byLabel.get(q.label)?.evidence ?? [],
     })),
     activity.body_data,
+    normalizeActivityType(activity.type) as PracticalAssessmentType,
   )
   if (errors.length > 0) throw new Error(errors.join(" "))
   return evidence
@@ -277,9 +286,9 @@ async function checkQuestionEvidence(
  *     full, anything else is capped below the new full mark, as migration 130
  *     does for criteria), and every submission is recomputed.
  *
- * A question with pupils' marks cannot be removed. A PowerPoint assessment's
- * questions are refused, all together, when their evidence does not fit the
- * activity's upload slots (checkQuestionEvidence).
+ * A question with pupils' marks cannot be removed. A practical assessment's
+ * (PowerPoint or database) questions are refused, all together, when their
+ * evidence does not fit the activity's upload slots (checkQuestionEvidence).
  */
 export async function setAssessmentQuestions(
   activityId: string,
@@ -511,10 +520,10 @@ async function moveMarksToAllocations(db: Queryable, activityId: string): Promis
   )
 }
 
-/** Lock a submission of an assessment paper; returns its activity id. */
-async function isPowerPointActivity(db: Queryable, activityId: string): Promise<boolean> {
+/** Whether the activity is a practical assessment (PowerPoint or database). */
+async function isPracticalActivity(db: Queryable, activityId: string): Promise<boolean> {
   const { rows } = await db.query<{ type: string | null }>("select type from activities where activity_id = $1", [activityId])
-  return isPowerPointAssessmentType(rows[0]?.type)
+  return isPracticalAssessmentType(rows[0]?.type)
 }
 
 async function lockAssessmentSubmission(db: Queryable, submissionId: string): Promise<string> {
@@ -688,7 +697,7 @@ async function countOpenAssessmentJobs(db: Queryable, submissionId: string, jobI
 }
 
 /**
- * PowerPoint assessment questions whose reference_file sources name a file
+ * Practical assessment questions whose reference_file sources name a file
  * that is not among the activity's files (lessons bucket,
  * {lessonId}/activities/{activityId}/{fileName}), with the missing names.
  * Such a question cannot be marked as set, so it is held like one with no
@@ -713,7 +722,7 @@ async function missingReferenceFiles(db: Queryable, activityId: string): Promise
 
 /**
  * Questions of a read submission that the marker cannot be sent: no mark
- * scheme text, or (a PowerPoint assessment) a reference file that is not
+ * scheme text, or (a practical assessment, PowerPoint or database) a reference file that is not
  * among the activity's files or a required screenshot DINO cannot show (the
  * answer's transcription says which); not teacher-only, not blank, and not already
  * marked by anyone. The reason goes in mark_error so the results page says
@@ -729,7 +738,7 @@ async function heldQuestionsMessage(db: Queryable, submissionId: string): Promis
   }>(
     `select q.question_id, q.label, q.activity_id,
             nullif(btrim(coalesce(q.mark_scheme, '')), '') is null as no_mark_scheme,
-            case when a.status = 'unreadable' and x.type = 'powerpoint-assessment' then a.transcription end as unshowable
+            case when a.status = 'unreadable' and x.type = any($2::text[]) then a.transcription end as unshowable
        from submissions s
        join activities x on x.activity_id = s.activity_id
        join activity_questions q on q.activity_id = s.activity_id
@@ -740,7 +749,7 @@ async function heldQuestionsMessage(db: Queryable, submissionId: string): Promis
                          where m.submission_id = s.submission_id and m.question_id = q.question_id
                            and m.provenance <> 'legacy')
       order by q.position, q.label`,
-    [submissionId],
+    [submissionId, PRACTICAL_ASSESSMENT_TYPES],
   )
   if (rows.length === 0) return null
   const messages: string[] = []
@@ -833,7 +842,7 @@ export type ReadCompletion = {
  *   - a blank answer scores 0 on every criterion with NO_ANSWER_COMMENT,
  *     or the reader's blankReason when it gave one;
  *   - a teacher-only question is left for the teacher;
- *   - a question with no mark scheme text, or (a PowerPoint assessment) whose
+ *   - a question with no mark scheme text, or (a practical assessment) whose
  *     reference file is not among the activity's files, is held, and named
  *     in mark_error;
  *   - a question whose every criterion a teacher has marked is not re-sent;
@@ -843,7 +852,7 @@ export type ReadCompletion = {
  * marked. A read job that is no longer 'processing' (deleted when the work
  * was sent again) writes nothing: its answers are of files since replaced.
  *
- * On a PowerPoint assessment an 'unreadable' answer (a required screenshot
+ * On a practical assessment an 'unreadable' answer (a required screenshot
  * that is only pictures DINO cannot show) is held for the teacher, its
  * transcription saying why, like a question with no mark scheme.
  */
@@ -867,7 +876,7 @@ export async function completeAssessmentRead(input: {
         superseded: true,
       }
     }
-    const powerPoint = await isPowerPointActivity(client, activityId)
+    const practical = await isPracticalActivity(client, activityId)
     const questions = await readQuestions(client, activityId)
     const questionIds = new Set(questions.map((q) => q.questionId))
 
@@ -943,7 +952,7 @@ export async function completeAssessmentRead(input: {
       if (
         !question.markScheme?.trim() ||
         missingReference.has(question.questionId) ||
-        (powerPoint && answer?.status === "unreadable")
+        (practical && answer?.status === "unreadable")
       ) {
         result.heldQuestionIds.push(question.questionId)
         continue
@@ -1024,6 +1033,25 @@ export async function completeAssessmentQuestionMark(input: {
 }
 
 /**
+ * SQL condition, per type, that a latest submission `l` (activity $1) is read
+ * and may be sent to the marker for its answer `a` (see
+ * selectHeldQuestionsToSend).
+ */
+function readCompleteCondition(practical: boolean): string {
+  return practical
+    ? `l.submission_status = 'submitted' and a.status <> 'unreadable'
+        and not exists (select 1 from practical_submission_evidence e
+                         where e.submission_id = l.submission_id and e.status = 'error')`
+    : `not exists (select 1 from activities x
+                    where x.activity_id = $1 and coalesce(x.body_data ? 'foldedFromAssessmentIds', false))
+        and exists (select 1 from (select sc.front_sheet_check, sc.page_paths from assessment_scripts sc
+                                    where sc.submission_id = l.submission_id
+                                    order by sc.uploaded_at desc, sc.script_id desc
+                                    limit 1) script
+                     where script.front_sheet_check = 'passed' and cardinality(script.page_paths) > 0)`
+}
+
+/**
  * Questions held at the read for want of a mark scheme that can now be sent:
  * on pupils' latest submissions (or `submissionId` alone) whose read is
  * complete (the question has an answer row, no read job is open); the
@@ -1033,7 +1061,7 @@ export async function completeAssessmentQuestionMark(input: {
  *
  *   assessment paper     the newest script passed the front sheet check;
  *                        never a folded paper.
- *   PowerPoint           handed in, and no file the reader refused (such a
+ *   practical            (PowerPoint or database) handed in, and no file the reader refused (such a
  *                        submission is held whole: send the work again). An
  *                        answer held for pictures DINO cannot show
  *                        ('unreadable') stays with the teacher, and so does a
@@ -1048,19 +1076,9 @@ async function selectHeldQuestionsToSend(
     "select type from activities where activity_id = $1",
     [activityId],
   )
-  const powerPoint = isPowerPointAssessmentType(typeRows[0]?.type)
-  if (!powerPoint && !isAssessmentPaperType(typeRows[0]?.type)) return []
-  const typeCondition = powerPoint
-    ? `l.submission_status = 'submitted' and a.status <> 'unreadable'
-        and not exists (select 1 from practical_submission_evidence e
-                         where e.submission_id = l.submission_id and e.status = 'error')`
-    : `not exists (select 1 from activities x
-                    where x.activity_id = $1 and coalesce(x.body_data ? 'foldedFromAssessmentIds', false))
-        and exists (select 1 from (select sc.front_sheet_check, sc.page_paths from assessment_scripts sc
-                                    where sc.submission_id = l.submission_id
-                                    order by sc.uploaded_at desc, sc.script_id desc
-                                    limit 1) script
-                     where script.front_sheet_check = 'passed' and cardinality(script.page_paths) > 0)`
+  const practical = isPracticalAssessmentType(typeRows[0]?.type)
+  if (!practical && !isAssessmentPaperType(typeRows[0]?.type)) return []
+  const typeCondition = readCompleteCondition(practical)
   const { rows } = await db.query<{ submission_id: string; user_id: string; question_id: string }>(
     `with latest as (
        select distinct on (s.user_id) s.submission_id, s.user_id, s.submission_status
@@ -1089,7 +1107,7 @@ async function selectHeldQuestionsToSend(
       order by l.user_id, q.position, q.label`,
     [activityId, submissionId],
   )
-  const missingReference = powerPoint ? await missingReferenceFiles(db, activityId) : new Map<string, string[]>()
+  const missingReference = practical ? await missingReferenceFiles(db, activityId) : new Map<string, string[]>()
   return rows
     .filter((row) => !missingReference.has(row.question_id))
     .map((row) => ({ submissionId: row.submission_id, pupilId: row.user_id, questionId: row.question_id }))
@@ -1133,6 +1151,168 @@ export async function queueHeldAssessmentQuestions(input: {
       [input.submissionId, await heldQuestionsMessage(client, input.submissionId)],
     )
     return questionIds
+  })
+}
+
+/** One question of one latest submission that a mark scheme change re-marks. */
+export type RemarkCandidate = {
+  submissionId: string
+  pupilId: string
+  questionId: string
+  /** A teacher has marked every criterion of the question: left as it is. */
+  teacherMarked: boolean
+  /** An ai_mark job is waiting for it, and will use the new mark scheme. */
+  pending: boolean
+}
+
+/**
+ * The questions `questionIds` (their mark scheme changed) on pupils' latest
+ * submissions (or `submissionId` alone) whose read is complete, as
+ * selectHeldQuestionsToSend decides it: not teacher-only, the answer not
+ * blank, a mark scheme now, no read job open. Unlike a held question, one
+ * that is marked already is included: AI and legacy rows are what a re-mark
+ * replaces.
+ */
+async function selectRemarkCandidates(
+  db: Queryable,
+  activityId: string,
+  questionIds: string[],
+  submissionId: string | null,
+): Promise<RemarkCandidate[]> {
+  if (questionIds.length === 0) return []
+  const { rows: typeRows } = await db.query<{ type: string | null }>(
+    "select type from activities where activity_id = $1",
+    [activityId],
+  )
+  const practical = isPracticalAssessmentType(typeRows[0]?.type)
+  if (!practical && !isAssessmentPaperType(typeRows[0]?.type)) return []
+  const { rows } = await db.query<{
+    submission_id: string
+    user_id: string
+    question_id: string
+    teacher_marked: boolean
+    pending: boolean
+  }>(
+    `with latest as (
+       select distinct on (s.user_id) s.submission_id, s.user_id, s.submission_status
+         from submissions s
+        where s.activity_id = $1
+        order by s.user_id, s.attempt_number desc, s.submitted_at desc nulls last, s.submission_id desc
+     )
+     select l.submission_id, l.user_id, q.question_id,
+            not exists (select 1 from activity_question_criteria c
+                         where c.question_id = q.question_id
+                           and not exists (select 1 from submission_question_criterion_marks m
+                                            where m.submission_id = l.submission_id
+                                              and m.question_id = c.question_id
+                                              and m.success_criteria_id = c.success_criteria_id
+                                              and m.provenance = 'teacher')) as teacher_marked,
+            exists (select 1 from external_jobs j
+                     where j.job_type = 'ai_mark' and j.status = 'pending'
+                       and j.payload->>'submissionId' = l.submission_id
+                       and j.payload->>'questionId' = q.question_id::text) as pending
+       from latest l
+       join activity_questions q on q.activity_id = $1 and q.question_id::text = any($3::text[])
+       join submission_question_answers a on a.submission_id = l.submission_id and a.question_id = q.question_id
+      where ($2::text is null or l.submission_id = $2)
+        and ${readCompleteCondition(practical)}
+        and q.marking <> 'teacher' and a.status <> 'blank'
+        and nullif(btrim(coalesce(q.mark_scheme, '')), '') is not null
+        and not exists (select 1 from external_jobs j
+                         where j.job_type = 'ai_read' and j.status in ('pending', 'processing')
+                           and j.payload->>'submissionId' = l.submission_id)
+      order by l.user_id, q.position, q.label`,
+    [activityId, submissionId, questionIds],
+  )
+  const missingReference = practical ? await missingReferenceFiles(db, activityId) : new Map<string, string[]>()
+  return rows
+    .filter((row) => !missingReference.has(row.question_id))
+    .map((row) => ({
+      submissionId: row.submission_id,
+      pupilId: row.user_id,
+      questionId: row.question_id,
+      teacherMarked: row.teacher_marked,
+      pending: row.pending,
+    }))
+}
+
+/** The work a change to `questionIds`' mark schemes would re-mark (see selectRemarkCandidates). */
+export async function listQuestionsToRemark(activityId: string, questionIds: string[]): Promise<RemarkCandidate[]> {
+  return selectRemarkCandidates({ query } as Queryable, activityId, questionIds, null)
+}
+
+export type RemarkedSubmission = {
+  /** Questions sent to the marker again. */
+  queued: string[]
+  /** Questions whose waiting job will use the new mark scheme: nothing queued. */
+  alreadyQueued: string[]
+  /** Questions a teacher has marked in full: left as they are. */
+  teacherMarked: string[]
+}
+
+/**
+ * Re-mark one submission's questions after their mark schemes changed
+ * (selectRemarkCandidates, checked again under the submission's row lock).
+ * Per question sent: a mark job already running (against the old mark
+ * scheme) is dropped, so its result is discarded as superseded; the marker's
+ * and legacy rows go, except rows carrying a teacher's comment, which the
+ * marker then overwrites keeping the comment; a teacher's own rows stay, and
+ * the marker never writes over them, so their ai_awarded keeps the earlier
+ * mark. One ai_mark job each, and the submission waits until they are marked.
+ */
+export async function remarkAssessmentQuestions(input: {
+  activityId: string
+  submissionId: string
+  assignmentId: string
+  questionIds: string[]
+}): Promise<RemarkedSubmission> {
+  return inTransaction(async (client) => {
+    const activityId = await lockAssessmentSubmission(client, input.submissionId)
+    if (activityId !== input.activityId) {
+      throw new Error(`Submission ${input.submissionId} is not on assessment paper ${input.activityId}.`)
+    }
+    const candidates = await selectRemarkCandidates(client, activityId, input.questionIds, input.submissionId)
+    const result: RemarkedSubmission = {
+      queued: candidates.filter((c) => !c.teacherMarked && !c.pending).map((c) => c.questionId),
+      alreadyQueued: candidates.filter((c) => !c.teacherMarked && c.pending).map((c) => c.questionId),
+      teacherMarked: candidates.filter((c) => c.teacherMarked).map((c) => c.questionId),
+    }
+    if (result.queued.length === 0) return result
+
+    await client.query(
+      `delete from external_jobs
+        where job_type = 'ai_mark' and status in ('pending', 'processing')
+          and payload->>'submissionId' = $1 and payload->>'questionId' = any($2::text[])`,
+      [input.submissionId, result.queued],
+    )
+    await client.query(
+      `delete from submission_question_criterion_marks
+        where submission_id = $1 and question_id::text = any($2::text[])
+          and provenance <> 'teacher' and teacher_feedback is null`,
+      [input.submissionId, result.queued],
+    )
+    await client.query(
+      `delete from submission_question_marks
+        where submission_id = $1 and question_id::text = any($2::text[]) and provenance <> 'teacher'`,
+      [input.submissionId, result.queued],
+    )
+    await client.query(
+      `update submission_question_answers set marker_evidence = null, updated_at = timezone('utc', now())
+        where submission_id = $1 and question_id::text = any($2::text[]) and marker_evidence is not null`,
+      [input.submissionId, result.queued],
+    )
+    await recomputeAssessmentSubmission(client, input.submissionId)
+    await client.query(
+      `insert into external_jobs (job_type, payload)
+       select 'ai_mark', jsonb_build_object('submissionId', $1::text, 'assignmentId', $2::text, 'questionId', q)
+         from unnest($3::text[]) as q`,
+      [input.submissionId, input.assignmentId, result.queued],
+    )
+    await client.query(
+      "update submissions set mark_status = 'waiting', mark_error = $2 where submission_id = $1",
+      [input.submissionId, await heldQuestionsMessage(client, input.submissionId)],
+    )
+    return result
   })
 }
 

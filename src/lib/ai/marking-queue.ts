@@ -3,7 +3,6 @@ import type { z } from "zod";
 import { query, withDbClient } from "@/lib/db";
 import {
   MarkWorksheetActivityBodySchema,
-  PowerPointAssessmentActivityBodySchema,
   ShortTextActivityBodySchema,
   ShortTextSubmissionBodySchema,
   UploadCodeActivityBodySchema,
@@ -24,7 +23,8 @@ import { emitSubmissionEvent } from "@/lib/sse/topics";
 import { logQueueEvent } from "@/lib/ai/marking-log";
 import { joinLabels } from "@/lib/utils";
 import { fetchCriterionForMarking } from "@/lib/scoring/success-criteria";
-import { isAssessmentPaperType, isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config";
+import { isAssessmentPaperType, isPracticalAssessmentType, isQuestionMarkedActivityType } from "@/dino.config";
+import { practicalTypeConfig } from "@/lib/practical-assessment/types";
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
 
 /** Job types the marking worker claims for submissions: an assessment paper's read, and every mark. */
@@ -115,8 +115,8 @@ export async function enqueueMarkingTasks(
        where s.submission_id = $1`,
       [task.submissionId],
     );
-    if (isPowerPointAssessmentType(typeRows[0]?.type)) {
-      await enqueuePowerPointSubmission(task.submissionId, assignmentId, delaySecs);
+    if (isPracticalAssessmentType(typeRows[0]?.type)) {
+      await enqueuePracticalSubmission(task.submissionId, assignmentId, delaySecs);
       continue;
     }
     if (isAssessmentPaperType(typeRows[0]?.type)) {
@@ -317,48 +317,55 @@ async function enqueueAssessmentPaperSubmission(submissionId: string, assignment
 }
 
 /**
- * A PowerPoint assessment is sent when the pupil hands in (submission_status
- * 'submitted'); before that nothing is done. With a required upload slot
- * empty it is held, naming the slots. Otherwise one `ai_read` job reads the
- * files, without a model (src/lib/powerpoint-assessment/reading.ts), and the
- * read queues one `ai_mark` job per question to mark (completeAssessmentRead).
- * Any open job for the submission is replaced.
+ * A practical assessment (PowerPoint or database) is sent when the pupil
+ * hands in (submission_status 'submitted'); before that nothing is done. With
+ * a required upload slot empty it is held, naming the slots. Otherwise one
+ * `ai_read` job reads the files, without a model
+ * (src/lib/powerpoint-assessment/reading.ts), and the read queues one
+ * `ai_mark` job per question to mark (completeAssessmentRead). Any open job
+ * for the submission is replaced.
  */
-async function enqueuePowerPointSubmission(submissionId: string, assignmentId: string, delaySecs: number) {
-  const { rows } = await query<{ submission_status: string | null; body_data: unknown }>(
-    `select s.submission_status, a.body_data
+async function enqueuePracticalSubmission(submissionId: string, assignmentId: string, delaySecs: number) {
+  const { rows } = await query<{ submission_status: string | null; type: string | null; body_data: unknown }>(
+    `select s.submission_status, a.type, a.body_data
        from submissions s join activities a on a.activity_id = s.activity_id
       where s.submission_id = $1`,
     [submissionId],
   );
   const row = rows[0];
-  if (!row || row.submission_status !== "submitted") {
-    await logQueueEvent("info", `Not enqueued: PowerPoint assessment submission ${submissionId} is not handed in`);
+  if (!row) {
+    await logQueueEvent("info", `Not enqueued: practical assessment submission ${submissionId} is not handed in`);
+    return;
+  }
+  const config = practicalTypeConfig(row.type);
+  if (row.submission_status !== "submitted") {
+    await logQueueEvent("info", `Not enqueued: ${config.label} submission ${submissionId} is not handed in`);
     return;
   }
 
-  const body = PowerPointAssessmentActivityBodySchema.safeParse(row.body_data ?? {});
+  const body = config.bodySchema.safeParse(row.body_data ?? {});
   if (!body.success) {
-    const reason = "Not marked: this PowerPoint assessment's upload slots are not set up. Set them up in the lesson editor, then send the work again.";
+    const reason = `Not marked: this ${config.labelLower}'s upload slots are not set up. Set them up in the lesson editor, then send the work again.`;
     await holdAssessmentSubmission(submissionId, reason);
-    await logQueueEvent("warn", `Not enqueued: PowerPoint assessment submission ${submissionId}`, { reason });
+    await logQueueEvent("warn", `Not enqueued: ${config.label} submission ${submissionId}`, { reason });
     return;
   }
+  const slots = (body.data as { uploadSlots: Array<{ key: string; label: string; required: boolean }> }).uploadSlots;
   const { rows: files } = await query<{ slot_key: string }>(
     "select slot_key from practical_submission_files where submission_id = $1",
     [submissionId],
   );
   const handedIn = new Set(files.map((file) => file.slot_key));
-  const missing = body.data.uploadSlots.filter((slot) => slot.required && !handedIn.has(slot.key));
+  const missing = slots.filter((slot) => slot.required && !handedIn.has(slot.key));
   if (missing.length > 0) {
     const reason = `Not marked: no ${joinLabels(missing.map((slot) => slot.label))} handed in.`;
     await holdAssessmentSubmission(submissionId, reason);
-    await logQueueEvent("warn", `Not enqueued: PowerPoint assessment submission ${submissionId}`, { reason });
+    await logQueueEvent("warn", `Not enqueued: ${config.label} submission ${submissionId}`, { reason });
     return;
   }
 
   await queueQuestionMarkedRead(submissionId, assignmentId, delaySecs);
-  await logQueueEvent("info", `Queued the read of PowerPoint assessment submission ${submissionId}`);
+  await logQueueEvent("info", `Queued the read of ${config.label} submission ${submissionId}`);
 }
 
 /**
@@ -1108,7 +1115,7 @@ async function readFailurePrefix(submissionId: string): Promise<string> {
     "select a.type from submissions s join activities a on a.activity_id = s.activity_id where s.submission_id = $1",
     [submissionId],
   );
-  return isPowerPointAssessmentType(rows[0]?.type) ? "Reading the files" : "Reading the script";
+  return isPracticalAssessmentType(rows[0]?.type) ? "Reading the files" : "Reading the script";
 }
 
 /** "Question 3", for a failure note; the id when the question has gone. */
@@ -1123,8 +1130,8 @@ async function questionLabel(questionId: string): Promise<string> {
 /**
  * Run one job of a question-marked activity: the read (`ai_read`) or one
  * question's mark (`ai_mark` with a questionId). An assessment paper's read
- * is of its script (src/lib/assessment-paper/jobs.ts); a PowerPoint
- * assessment's is of the pupil's files, with no model
+ * is of its script (src/lib/assessment-paper/jobs.ts); a practical
+ * assessment's (PowerPoint or database) is of the pupil's files, with no model
  * (src/lib/powerpoint-assessment/jobs.ts). The store closes the job in the
  * same transaction as its result (see completeAssessmentRead), so
  * resolveQueueItem is not called. Errors propagate to processSingleItem's
@@ -1137,8 +1144,8 @@ async function processQuestionMarkedItem(
   // Loaded on demand: the jobs pull in the file stores and readers (sharp,
   // poppler, the Office readers), which every other importer of this queue
   // can do without.
-  const powerPoint = isPowerPointAssessmentType(context.type);
-  const { runMarkJob, runReadJob } = powerPoint
+  const practical = isPracticalAssessmentType(context.type) ? practicalTypeConfig(context.type) : null;
+  const { runMarkJob, runReadJob } = practical
     ? await import("@/lib/powerpoint-assessment/jobs").then((m) => ({
       runReadJob: m.runPowerPointReadJob,
       runMarkJob: m.runPowerPointMarkJob,
@@ -1163,8 +1170,8 @@ async function processQuestionMarkedItem(
     outcome = await runMarkJob({ ...job, questionId: item.question_id });
   } else {
     throw new PermanentMarkingError(
-      powerPoint
-        ? "A PowerPoint assessment is read, then marked per question; this job names no question. Send the work again."
+      practical
+        ? `A ${practical.labelLower} is read, then marked per question; this job names no question. Send the work again.`
         : "An assessment paper is read, then marked per question; this job names no question. Send the work again.",
     );
   }
@@ -1186,7 +1193,7 @@ async function processQuestionMarkedItem(
       feedbackText: null,
       createdBy: null,
     });
-    await logQueueEvent("info", `${powerPoint ? "PowerPoint assessment" : "Assessment paper"} submission ${item.submission_id} fully marked`, {
+    await logQueueEvent("info", `${practical ? practical.label : "Assessment paper"} submission ${item.submission_id} fully marked`, {
       awarded: outcome.totals?.awarded ?? null,
       available: outcome.totals?.available ?? null,
     });

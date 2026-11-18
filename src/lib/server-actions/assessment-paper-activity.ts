@@ -19,7 +19,7 @@ import {
 } from "@/lib/assessment-paper/files"
 import { proposeMarkSchemeSplit } from "@/lib/assessment-paper/mark-scheme-split"
 import { listUnmarkedPowerPointSubmissions } from "@/lib/powerpoint-assessment/files"
-import { isPowerPointAssessmentType } from "@/dino.config"
+import { isPracticalAssessmentType } from "@/dino.config"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import { withTelemetry } from "@/lib/telemetry"
 
@@ -139,7 +139,7 @@ export async function uploadAssessmentPaperFileAction(formData: FormData) {
 /**
  * Send every script that passed the front sheet check and has never been
  * read or marked. Folded legacy papers and anything already marked are left
- * alone (see listUnmarkedScriptSubmissions). On a PowerPoint assessment, the
+ * alone (see listUnmarkedScriptSubmissions). On a practical assessment, the
  * handed-in work that has never been read or marked, whose read is queued
  * again (see listUnmarkedPowerPointSubmissions).
  */
@@ -154,7 +154,7 @@ export async function sendUnmarkedAssessmentScriptsAction(activityId: string) {
           "select type from activities where activity_id = $1",
           [id],
         )
-        const submissions = isPowerPointAssessmentType(typeRows[0]?.type)
+        const submissions = isPracticalAssessmentType(typeRows[0]?.type)
           ? await listUnmarkedPowerPointSubmissions(id)
           : await listUnmarkedScriptSubmissions(id)
         // Grouped by the marking assignment id, as the other marking paths

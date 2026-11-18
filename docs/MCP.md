@@ -481,7 +481,7 @@ To change part of `body_data`, pass only the changed fields to `update_activity`
 #### `create_activity`
 Creates an activity under a lesson.
 
-Scorable types: `multiple-choice-question`, `short-text-question`, `text-question`, `long-text-question`, `upload-file`, `upload-url`, `feedback`, `sketch-render`, `group-items`, `matcher`, `sequence`, `assessment-paper` (see *Assessment paper activities*), `powerpoint-assessment` (see *PowerPoint assessment activities*)  
+Scorable types: `multiple-choice-question`, `short-text-question`, `text-question`, `long-text-question`, `upload-file`, `upload-url`, `feedback`, `sketch-render`, `group-items`, `matcher`, `sequence`, `assessment-paper` (see *Assessment paper activities*), `powerpoint-assessment` (see *PowerPoint assessment activities*), `database-assessment` (see *Database assessment activities*)  
 Non-scorable types: `text`, `display-image`, `display-webpage`, `display-flashcards`, `file-download`, `show-video`, `voice`, `share-my-work`, `review-others-work`, `display-section`
 
 `do-flashcards` is a legacy type. Asking for one returns an error and nothing is written. Existing do-flashcards activities still work. The list of legacy types is `LEGACY_ACTIVITY_TYPES` in `src/dino.config.ts`.
@@ -558,6 +558,36 @@ The resulting body is checked as `create_activity` checks it. A short-text-quest
 **Output:** `{ activity: { activity_id, lesson_id, title, type, order_index, is_summative, active } | null }`
 
 A new `body_data` on a `matcher` or `group-items` also resets `max_marks` to the new pair or item count, as in the app.
+
+---
+
+#### `get_activity_marking_prompt`
+Returns an activity's marking prompt: the teacher's instructions the AI marker sends to the model with each pupil's work, stored as `body_data.markingGuidance`.
+
+| Type | Prompt | Also returned |
+|---|---|---|
+| `short-text-question` | optional | `model_answer`, which the marker sends too (change it with `update_activity` `model_answer`) |
+| `upload-code`, `upload-spreadsheet` | required | |
+| `upload-worksheet` | required unless a marking guidance template is chosen | `marking_guidance_template { id, title, content }`, sent before the prompt |
+| `mark-worksheet` | optional | `marking_guidance_template` |
+| `upload-file` | required while `ai_marking` is on, unused while it is off | `ai_marking` |
+
+A prompt written in the lesson editor may hold HTML. An assessment paper, PowerPoint or database assessment has a mark scheme per question instead (`get_assessment_activity`, `set_assessment_activity_questions`): `has_marking_prompt` is `false` and `note` says so. Any other type is not AI-marked and has no prompt.
+
+**Input:** `{ activity_id: string }`  
+**Output:** `{ marking_prompt: { activity_id, lesson_id, title, type, ai_marked, has_marking_prompt, marking_prompt: string | null, prompt_required, ai_marking: boolean | null, model_answer: string | null, marking_guidance_template: { id, title, content } | null, note } | null }`
+
+---
+
+#### `set_activity_marking_prompt`
+Sets the marking prompt of an activity of one of the types above, through `update_activity`'s save path, so the body is checked as there and as in the lesson editor. The prompt is trimmed; an empty one removes it where the type allows and is refused where it is required. For an upload-file, `ai_marking` turns *Mark with AI* on (needs a prompt, given or stored) or off (the prompt is kept); it is refused on other types.
+
+`remark` (default `true`): when the prompt text changed, each pupil's **latest** submission already sent for marking (`mark_status` set) is sent to the AI marker again through `enqueueMarkingTasks`, one `ai_mark` job per criterion. Not a submission a teacher has marked on every criterion, and nothing for an upload-file with `ai_marking` off. The marker's criterion rows go and a waiting job for the same criterion is replaced, never doubled. `false` saves the prompt only: existing marks and comments stay, and marking from then on uses the new prompt. Either way a teacher's criterion marks, comments and whole-activity overrides are kept.
+
+Refused with `isError` and nothing written for question-marked types (set each question's `mark_scheme` with `set_assessment_activity_questions`), for types not marked by AI, and when neither `marking_prompt` nor `ai_marking` is given. A body check failure carries `error.code` as `update_activity`'s does.
+
+**Input:** `{ activity_id: string, marking_prompt?: string, ai_marking?: boolean, remark?: boolean }`  
+**Output:** as `get_activity_marking_prompt`, plus `remarking: { remark, prompt_changed, submissions_queued, skipped_teacher_marked }`. No pupil names.
 
 ---
 
@@ -1014,17 +1044,19 @@ If the questions have no mark scheme text (most folded papers), `split_assessmen
 - `questions_flagged`: questions the pupil has flagged for the teacher to check that no teacher has cleared yet (migration 144).
 
 #### `set_assessment_activity_questions`
-**Input:** `{ activity_id, questions: [{ label, max_marks, question_text?, mark_scheme?, marking?, depends_on?, evidence?, criteria: [{ success_criteria_id, max_marks }] }] }`
+**Input:** `{ activity_id, questions: [{ label, max_marks, question_text?, mark_scheme?, marking?, depends_on?, evidence?, criteria: [{ success_criteria_id, max_marks }] }], remark? }`
 Send the full list every time. Questions are matched by label, and list order sets their position. A label left out is deleted, unless pupils already have marks on it, which is an error. Marks already given follow a change of allocation: a full mark stays full, and any other mark is capped one below the new full mark.
 - `marking`: `"ai"` (marked by the model; the default for a new question), `"ai_check"` (marked by the model, then listed for the teacher to confirm) or `"teacher"` (never sent). If you leave it out, the current setting is kept.
 - `depends_on`: error carried forward. Give the label of an **earlier** question on the paper, and the marker also sees that question's answer. Use `null` or `""` for none. If you leave it out, the current value is kept. A later question, the question itself or an unknown label is refused.
-- `evidence` (PowerPoint assessments only; refused on a paper): the question's evidence sources, see *PowerPoint assessment activities*. If you leave it out, the current sources are kept; `[]` clears them.
+- `evidence` (PowerPoint and database assessments only; refused on a paper): the question's evidence sources, see *PowerPoint assessment activities* and *Database assessment activities*. If you leave it out, the current sources are kept; `[]` clears them.
+- `remark` (default `true`): a question whose `mark_scheme` text changed is sent to the AI marker again, one `ai_mark` job per question, on each pupil's **latest** submission whose read is complete (a paper's newest script passed the front sheet check; a practical one handed in with no refused file). Not for teacher-only questions, blank answers, a question a teacher has marked on every criterion, or a folded paper. The marker's (and legacy) rows on that question go, and the submission waits (`mark_status` `waiting`) until the marker is done. A job already waiting is left, as it reads the new mark scheme; one already running is replaced. `false` saves the mark schemes only: existing marks and comments stay, and marking from then on uses the new text.
+- Either way a teacher's marks and comments are kept: the marker never writes over a teacher's row, and a marker's row carrying a teacher's comment keeps the comment. A teacher row's `ai_awarded` stays the earlier marker's mark.
 - `questions`, each `criteria` and each `evidence` may be sent as JSON strings.
-**Output:** `{ assessment_activity }`, the same shape as `get_assessment_activity`.
+**Output:** `{ assessment_activity }`, the same shape as `get_assessment_activity`, plus `remarking: { remark, changed_questions (labels), submissions_queued, question_marks_queued, already_queued, skipped_teacher_marked }`. No pupil names.
 
 #### `create_assessment_activity_file_upload_link`
 This works like the other one-time upload links: the link can be used once, lasts 15 minutes and takes one file of up to 25 MB (10 MB for a supplied image), with no credentials. Migration 133 adds target `assessment-activity` with `upload_kind`.
-**Input:** `{ activity_id, kind: "question_paper" | "mark_scheme" | "script" | "supplied_image" | "practical_file", pupil_id?, slot?, image_name? }`. `pupil_id` is required for `script` and `practical_file` and refused for the other kinds; `slot` is required for `practical_file` only. `supplied_image` and `practical_file` are for PowerPoint assessments (see below), `script` for papers only. For a script, the pupil and the question paper (which must be uploaded first) are checked when the link is made; on upload the pupil is checked again, and a script for a paper with no question paper is stored but held.
+**Input:** `{ activity_id, kind: "question_paper" | "mark_scheme" | "script" | "supplied_image" | "practical_file", pupil_id?, slot?, image_name? }`. `pupil_id` is required for `script` and `practical_file` and refused for the other kinds; `slot` is required for `practical_file` only. `supplied_image` is for PowerPoint assessments only; `practical_file` for PowerPoint and database assessments (see below); `script` for papers only. For a script, the pupil and the question paper (which must be uploaded first) are checked when the link is made; on upload the pupil is checked again, and a script for a paper with no question paper is stored but held.
 `question_paper` / `mark_scheme`: a PDF, which replaces any earlier one and sets `body_data.questionPaperPath` / `markSchemePath`. Those keys cannot be set or removed through `create_activity` or `update_activity`.
 `script`: a PDF. The upload replies `{ success, file: { script_id, submission_id, page_count, replaced_scripts, front_sheet_check, marking: "queued" | "held", message } }`. With `held` the message says why: the front sheet check, or the reason the queue gave.
 **Output:** `{ link: { upload_url, expires_at, max_bytes, instructions } }`
@@ -1063,7 +1095,7 @@ They are applied in that order: transcription, criteria, confirm. Everything is 
 **Output:** `{ marks: { activity_id, pupil_id, submission_id, marks_awarded, max_marks, mark_status, question } | null }`. `question` has the same shape as one entry of `get_assessment_activity_result`'s `questions`.
 
 #### `create_assessment_activity_script_download_link`
-Returns a one-time link to **one pupil's original uploaded script**, the PDF exactly as uploaded, including the front sheet (page 1, with the pupil's name). This is a teacher's copy; it is never sent to a model. The script is the newest on the pupil's latest submission, and held scripts (front sheet check failed) are included. It is refused if the activity is not an assessment paper (a PowerPoint assessment has none: "PowerPoint assessments have no scripts; use get_practical_assessment_evidence or the results page"), or the pupil has no submission or no script. Like the other download links it is single use, lasts 15 minutes, and only a SHA-256 hash is stored in `mcp_download_links`, here with `kind: "assessment_script"` and the `script_id` (migration 140). Uploading a replacement script deletes the script row and the link with it. The download is sent as an `application/pdf` attachment (a script folded in from the old assessments module may be a JPEG or PNG, sent as `image/jpeg` or `image/png`) and logged in `mcp_audit_log` as `script_download:link`. A missing file gives the link back and returns 404. The file is `<activity title> - <pupil name>.pdf` (or `.jpg` / `.png`), with characters a file system refuses taken out.
+Returns a one-time link to **one pupil's original uploaded script**, the PDF exactly as uploaded, including the front sheet (page 1, with the pupil's name). This is a teacher's copy; it is never sent to a model. The script is the newest on the pupil's latest submission, and held scripts (front sheet check failed) are included. It is refused if the activity is not an assessment paper (a PowerPoint assessment has none: "PowerPoint assessments have no scripts; use get_practical_assessment_evidence or the results page"; a database assessment: "Database assessments have no scripts; …"), or the pupil has no submission or no script. Like the other download links it is single use, lasts 15 minutes, and only a SHA-256 hash is stored in `mcp_download_links`, here with `kind: "assessment_script"` and the `script_id` (migration 140). Uploading a replacement script deletes the script row and the link with it. The download is sent as an `application/pdf` attachment (a script folded in from the old assessments module may be a JPEG or PNG, sent as `image/jpeg` or `image/png`) and logged in `mcp_audit_log` as `script_download:link`. A missing file gives the link back and returns 404. The file is `<activity title> - <pupil name>.pdf` (or `.jpg` / `.png`), with characters a file system refuses taken out.
 
 **Input:** `{ activity_id, pupil_id }`  
 **Output:** `{ link: { download_url, expires_at, activity_id, activity_title, pupil_id, script_id, front_sheet_check, page_count, file_name, instructions } | null }`
@@ -1091,8 +1123,8 @@ It is marked like an assessment paper, per question and per criterion, with
 the same tools (`set_assessment_activity_questions`, `get_assessment_activity`,
 `get_assessment_activity_result`, `set_assessment_activity_question_marks`,
 `split_assessment_activity_mark_scheme`, the class feedback link). There are
-no scripts and no front sheet. Other file types (spreadsheets, databases) are
-separate activity types.
+no scripts and no front sheet. Other file types are separate activity types
+(see *Database assessment activities*).
 
 **Workflow**
 
@@ -1120,7 +1152,7 @@ A question not marked by the teacher needs at least one source; slots must exist
 
 `get_assessment_activity` on this type returns `kind: "powerpoint-assessment"`, `body: { has_question_paper, has_mark_scheme, instructions, upload_slots, evidence_template_file, show_mark_scheme_to_pupils, problem }`, `supplied_images: [{ name, file_name, width, height, uploaded_at }]` (no fingerprints), questions with `evidence`, `handed_in_count`, and per pupil `handed_in`, `handed_in_at`, `files: [{ slot_key, label, kind, required, file: { file_id, file_name, bytes, uploaded_at, reader_status, reader_error } | null }]` and `missing_required`, beside the paper's `marks_awarded`, `mark_status`, `mark_error` and `progress`. An assessment paper returns `kind: "assessment-paper"`.
 
-`get_assessment_activity_result` on this type has `script: null` and `powerpoint: { handed_in, files: [{ slot_key, label, kind, required, file_name, uploaded_at, reader_status, reader_error }], missing_headings, warnings, unplaced_pictures }`, and each question also has `evidence_sources` and `marker_evidence` (the marker's note on what it was given).
+`get_assessment_activity_result` on this type has `script: null` and `powerpoint` (the practical files, named so for every practical type): `{ handed_in, files: [{ slot_key, label, kind, required, file_name, uploaded_at, reader_status, reader_error }], missing_headings, warnings, unplaced_pictures }`, and each question also has `evidence_sources` and `marker_evidence` (the marker's note on what it was given).
 
 Upload link kinds for this type (target `assessment-activity`, migration 143 adds `slot_key` to `mcp_upload_links`):
 - `supplied_image`: PNG, JPEG, GIF or WebP, max 10 MB, fingerprinted so the reader names it in a pupil's slides. `image_name` is its name (default: the file's name without extension); the same name replaces it. The upload replies `{ success, file: { name, file_name, width, height, replaced, warnings } }`; `warnings` name any image it looks very like.
@@ -1128,20 +1160,59 @@ Upload link kinds for this type (target `assessment-activity`, migration 143 add
 
 #### `get_practical_assessment_evidence`
 What the reader stored from one pupil's files (latest submission), to audit what the marker saw. Per slot: `file` (`file_id`, `file_name`, `bytes`, `uploaded_at`) or null, and `read` (null until read): `{ status: "error", kind, error, too_large }`, or `status: "ok"` with `read_at`, `cache_key`, `warnings` and
+- database (a database assessment's accdb slot): `error: null`, `summary` and `description`, see *Database assessment activities*;
 - presentation: `slide_count`, `sections: [{ key, title, text }]` (the description exactly as a presentation source gives it; narrow with `sections`), `slide_images: { status: "ok", slide_count, rendered: [{ slide, width, height, bytes }], not_rendered } | { status: "unavailable", reason } | null`;
 - PDF: `page_count`, `text_chars`, `text_truncated`;
 - evidence document: `sections: [{ label, heading, text, images, image_sizes, not_shown }]`, `unplaced: { text, images, not_shown }` (outside every heading: kept for the teacher, never marked), `missing_headings`, `template`.
 
 No picture data, paths or fingerprints are returned.
 
-**Input:** `{ activity_id, pupil_id, slot?, sections? }`. An unknown `sections` selector is refused, listing the valid ones.  
+**Input:** `{ activity_id, pupil_id, slot?, sections? }`. `sections` are presentation selectors on a PowerPoint assessment and database selectors on a database assessment. An unknown `sections` selector is refused, listing the valid ones.  
 **Output:** `{ evidence: { activity_id, pupil_id, first_name, last_name, submission_id, mark_status, mark_error, slots: [{ slot_key, label, kind, required, file, read }] } | null }`
 
 #### `hand_in_powerpoint_assessment`
-A teacher's *Hand in* for one pupil, as the pupil's button: marking starts (one read, then one AI mark per question; feedback stays hidden until released). Refused, naming them, while a required slot is empty. Handing in again does nothing.
+A teacher's *Hand in* for one pupil on a PowerPoint **or database** assessment (the tool keeps its name for both), as the pupil's button: marking starts (one read, then one AI mark per question; feedback stays hidden until released). Refused, naming them, while a required slot is empty. Handing in again does nothing.
 
 **Input:** `{ activity_id, pupil_id }`  
 **Output:** `{ hand_in: { activity_id, pupil_id, submission_id, already_handed_in, handed_in, mark_status } | null }`
+
+### Database assessment activities
+
+A practical task set **inside a lesson** as a `database-assessment` activity
+(migration 146): each pupil uploads a Microsoft Access database (`.accdb`) and
+an evidence document (`.docx`, screenshots and typed answers under headings),
+plus any PDF printouts, into named upload slots, then hands in. It works like a
+PowerPoint assessment, with the same tools and the same rules (hand-in, *Undo
+hand in*, Request Resubmission, the read with no model, one AI mark per
+question, Check/Confirm, flags, feedback PDFs). The database is read by DINO's
+own reader (mdbtools) and given to the marker as exact facts: tables, fields,
+lookups, saved sorts, records, relationships, saved query designs, forms and
+reports with their base tables, and the changes from the starting database.
+Form and report design (fonts, borders, positions) is not in the file and is
+judged from screenshots only. There are no supplied images.
+
+**Workflow**
+
+1. `create_activity` with `type: "database-assessment"`. `body_data` is required: `{ "instructions"?: "…", "uploadSlots": [{ "key": "database", "label": "…", "kind": "accdb" | "pdf" | "docx", "required": true, "hint"?: "…" }, …], "evidenceTemplateFile"?: "<an activity file, the blank evidence .docx>", "startingDatabaseFile"?: "<an activity file, the .accdb pupils start from>", "showMarkSchemeToPupils"?: false }`. 1–8 slots with unique keys, exactly one `accdb` slot, which is required. Upload the starting database and the evidence template as ordinary activity files; each pupil's database is compared with the starting database.
+2. `create_assessment_activity_file_upload_link` with `kind: "mark_scheme"` (and `"question_paper"` if pupils should see one). `supplied_image` is refused: "kind "supplied_image" is for PowerPoint assessments".
+3. `set_assessment_activity_questions`: every question with its criteria, `mark_scheme` text and `evidence`.
+4. Pupils upload and press *Hand in*; marking starts then. A teacher can upload for a pupil with `kind: "practical_file"` (the `.accdb` in the accdb slot) and hand in with `hand_in_powerpoint_assessment`.
+5. `get_assessment_activity`, `get_assessment_activity_result` and `get_practical_assessment_evidence` to check; `set_assessment_activity_question_marks` to correct or confirm.
+
+**Evidence sources.** `evidence_section`, `file` and `reference_file` as on a PowerPoint assessment (`presentation` and `slide_images` are refused), plus:
+- `{ source: "database", slot, sections?, required? }`: the reader's report of the accdb slot. `sections` from `tables`, `fields`, `relationships`, `lookups`, `table-sort`, `records` (every table's), `records:TABLE`, `changes`, `queries` (the list and every query's design), `query:NAME` (one query's design), `objects` (forms and reports), `warnings`; default all but `records` and single queries. Names ignore case. With `required: true`, a named table or query the database does not have makes the answer blank (0, with the reason, e.g. "There is no saved query called NOPE in your database."), with no model call.
+
+**Files.** `.mdb` files are refused (save as `.accdb`), and so are Access lock files (`.laccdb`), files that are not Access databases, and damaged or password-protected databases, with the reader's message. Records are given to the marker at most 200 per table.
+
+`get_assessment_activity` on this type returns `kind: "database-assessment"`, `body` as for PowerPoint plus `starting_database_file`, `supplied_images: []`, and the same per-pupil `handed_in`, `files` and `missing_required`.
+
+`get_assessment_activity_result` on this type has `script: null`, the `powerpoint` object as for PowerPoint (the field keeps its name), and each question also has `evidence_sources`, `marker_evidence` and `evidence_texts: [{ title, text }]`: per `database` source, the report sections the marker is given (teacher-only, like `marker_evidence`).
+
+`get_practical_assessment_evidence` on this type reports the accdb slot as `{ status: "ok", kind: "database", error: null, summary, description, warnings }` (or `{ status: "error", kind, error, too_large }`):
+- `summary: { version, tables: [{ name, fields: [{ name, type, size, required, lookup, validation_rule, default_value, format, input_mask }], rows, sort, filter }], queries: [{ name, type, sql, tables, joins, outputs, hidden_fields, where, group_by, having, order_by }], forms: [{ name, base_tables }], reports: [{ name, base_tables }], relationships: [{ name, primary_table, primary_fields, related_table, related_fields, enforced, cascade_update, cascade_delete }], starting_database: { file_name } | null, changes | null }`. `rows` is the record count; no record values are listed but the changes' (at most 200 added, removed or changed records per table, `truncated` when there are more). `changes` is null when there is no starting database to compare with.
+- `description`: the report as the marker is given it, records at most 200 per table; `sections` (database selectors) narrows it.
+
+No picture data is returned.
 
 ---
 

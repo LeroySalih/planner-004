@@ -18,7 +18,14 @@
 // Content before the first heading, and content after a Heading-styled
 // paragraph that is no label and not template text (when it is at the same
 // or a higher level than the section's own Heading-styled label), is
-// unplaced: kept apart for the teacher, never filed under a heading.
+// unplaced: kept apart for the teacher, never filed under a heading. So is
+// content after a template heading no question names: a plain paragraph of
+// the blank template, not list-numbered, at most 120 characters, that starts
+// with a label-shaped token ("9  Create a report", "B1  PET ID is…", "S2:")
+// other than a sub-part of the section's own label ("1a" under 1). Without a
+// template no such line is known, and a section runs on to the next heading.
+// Unplaced pictures are always warned about; unplaced text only when it comes
+// after the first heading (the Name and Class lines before it are expected).
 //
 // Pictures (a:blip r:embed, v:imagedata r:id) are read through
 // word/_rels/document.xml.rels and normalised with sharp: auto-rotated, long
@@ -46,6 +53,11 @@ const MAX_PLAIN_HEADING_CHARS = 120
 // A template paragraph shorter than this is never stripped from the start of
 // a pupil's paragraph (only removed when the whole paragraph matches).
 const MIN_TEMPLATE_PREFIX_CHARS = 3
+// The start of a template line that reads as a task heading: a number with up
+// to two letters before it and one after ("9", "B1", "3e", "S10"), then
+// spacing, ":", ")" or the end. "(a) State…", "1. Open…", "TAKE a…" and
+// "Section B – …" are not.
+const LABEL_SHAPED = /^[A-Z]{0,2}\d+[a-z]?(?=[\s:)]|$)/
 
 export type EvidenceImage = {
   // The media file's name in the package, e.g. "image3.png".
@@ -536,6 +548,20 @@ function isTemplateText(text: string, template: Template) {
   return text !== "" && template.exact.has(text.toLowerCase())
 }
 
+// A template line that heads a task no question names: it ends the section
+// before it, unless it is a sub-part of that section's label ("1a" under 1,
+// not "10" under 1).
+function endsSection(block: Block, template: Template, currentKey: string) {
+  if (block.numbered || block.headingLevel !== null || block.text.length > MAX_PLAIN_HEADING_CHARS) return false
+  if (!isTemplateText(block.text, template)) return false
+  const token = LABEL_SHAPED.exec(block.text)
+  if (!token) return false
+  const key = labelKey(token[0])
+  const subPart =
+    key.length > currentKey.length && key.startsWith(currentKey) && /\d/.test(currentKey.slice(-1)) !== /\d/.test(key.charAt(currentKey.length))
+  return !subPart
+}
+
 // The pupil's own text in a paragraph: "" when the whole paragraph is template
 // text, or what follows template text it starts with.
 function subtractTemplate(text: string, template: Template): string {
@@ -675,6 +701,8 @@ export async function readEvidenceDocument(
 
   const sections = new Map<string, { label: string; heading: string; level: number | null; bucket: Bucket }>()
   const unplaced = emptyBucket()
+  // Unplaced paragraphs before the first heading (Name, Class…): kept, not warned about.
+  let textsBeforeFirstHeading = 0
   let current: { level: number | null; bucket: Bucket; label: string | null } = { level: null, bucket: unplaced, label: null }
   const duplicateHeadings = new Set<string>()
   // Per table, the latest label row and the section key of each of its columns.
@@ -783,19 +811,29 @@ export async function readEvidenceDocument(
       }
     }
 
-    if (text) current.bucket.texts.push(text)
+    // A template heading for a task no question names ends the section.
+    if (!match && current.label !== null && endsSection(block, template, labelKey(current.label))) {
+      current = { level: null, bucket: unplaced, label: null }
+    }
+
+    if (text) {
+      current.bucket.texts.push(text)
+      if (current.bucket === unplaced && sections.size === 0) textsBeforeFirstHeading += 1
+    }
     await place(block.images, current.bucket, where())
   }
 
   for (const label of duplicateHeadings) {
     warnings.push(`The heading ${label} appears more than once; only the first is used.`)
   }
-  if (unplaced.texts.length || unplaced.images.length || unplaced.notShown.length) {
-    const parts = [
-      unplaced.texts.length ? `${unplaced.texts.length} paragraph${unplaced.texts.length === 1 ? "" : "s"}` : null,
-      unplaced.images.length ? `${unplaced.images.length} picture${unplaced.images.length === 1 ? "" : "s"}` : null,
-    ].filter(Boolean)
-    if (parts.length) warnings.push(`${parts.join(" and ")} are not under any task heading.`)
+  const counts = ([
+    [unplaced.texts.length - textsBeforeFirstHeading, "paragraph"],
+    [unplaced.images.length, "picture"],
+  ] as const).filter(([n]) => n > 0)
+  if (counts.length) {
+    const parts = counts.map(([n, noun]) => `${n} ${noun}${n === 1 ? "" : "s"}`)
+    const verb = counts.length === 1 && counts[0][0] === 1 ? "is" : "are"
+    warnings.push(`${parts.join(" and ")} ${verb} not under any task heading.`)
   }
 
   const found: EvidenceSection[] = []

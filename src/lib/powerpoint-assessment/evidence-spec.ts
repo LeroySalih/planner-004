@@ -6,15 +6,25 @@ import {
 } from "@/lib/pptx/section-selectors"
 
 import {
-  PowerPointAssessmentActivityBodySchema,
-  type PowerPointUploadSlot,
-  type PowerPointUploadSlotKind,
-} from "@/types"
+  DATABASE_SECTION_KEYS,
+  DEFAULT_DATABASE_SECTIONS,
+  databaseNameKey,
+  formatDatabaseSection,
+  parseDatabaseSection,
+  type DatabaseSectionSelector,
+} from "@/lib/accdb/section-selectors"
+import {
+  defaultPowerPointAssessmentBody,
+  practicalTypeConfig,
+  type PracticalAssessmentType,
+} from "@/lib/practical-assessment/types"
+import type { PracticalUploadSlot, PracticalUploadSlotKind } from "@/types"
 
-// Where a PowerPoint assessment question's evidence comes from: its
-// activity_questions.evidence, a list of sources, each naming one of the
-// activity's upload slots (or a teacher's reference file). The marker sees
-// only what its question's sources name.
+// Where a practical assessment question's evidence comes from (PowerPoint or
+// database): its activity_questions.evidence, a list of sources, each naming
+// one of the activity's upload slots (or a teacher's reference file). The
+// marker sees only what its question's sources name. Each type takes only its
+// own sources (practicalTypeConfig(type).sources).
 //
 // Pure: no database, no server-only, so the lesson editor can check a
 // question as the teacher types it, and setAssessmentQuestions checks it
@@ -90,6 +100,15 @@ const EvidenceSectionSourceSchema = z
   })
   .strict()
 
+const DatabaseSourceSchema = z
+  .object({
+    source: z.literal("database"),
+    slot,
+    sections: z.array(z.string()).min(1, "sections lists none; leave it out for the default").optional(),
+    required: z.boolean().optional(),
+  })
+  .strict()
+
 const ReferenceFileSourceSchema = z
   .object({
     source: z.literal("reference_file"),
@@ -104,32 +123,40 @@ export const QuestionEvidenceSchema = z.discriminatedUnion("source", [
   FileSourceSchema,
   EvidenceSectionSourceSchema,
   ReferenceFileSourceSchema,
+  DatabaseSourceSchema,
 ])
 
 export type QuestionEvidence = z.infer<typeof QuestionEvidenceSchema>
 export type QuestionEvidenceSource = QuestionEvidence["source"]
 
+/**
+ * Every source any practical type takes, for parsing only: what a type
+ * allows is practicalTypeConfig(type).sources, and every message lists that.
+ */
 export const QUESTION_EVIDENCE_SOURCES: readonly QuestionEvidenceSource[] = Object.freeze([
   "presentation",
   "slide_images",
   "file",
   "evidence_section",
   "reference_file",
+  "database",
 ])
 
 /** The slot kind each pupil-file source reads. */
-export const SOURCE_SLOT_KIND: Readonly<Record<Exclude<QuestionEvidenceSource, "reference_file">, PowerPointUploadSlotKind>> =
+export const SOURCE_SLOT_KIND: Readonly<Record<Exclude<QuestionEvidenceSource, "reference_file">, PracticalUploadSlotKind>> =
   Object.freeze({
     presentation: "pptx",
     slide_images: "pptx",
     file: "pdf",
     evidence_section: "docx",
+    database: "accdb",
   })
 
-const KIND_NAMES: Record<PowerPointUploadSlotKind, string> = {
+const KIND_NAMES: Record<PracticalUploadSlotKind, string> = {
   pptx: "the presentation (pptx)",
   pdf: "a PDF",
   docx: "an evidence document (docx)",
+  accdb: "the database (.accdb)",
 }
 
 /** The heading an evidence_section source looks for. */
@@ -141,6 +168,12 @@ export function evidenceHeading(source: { heading?: string }, questionLabel: str
 export function presentationSections(source: { sections?: string[] }): PresentationSectionSelector[] {
   if (!source.sections) return DEFAULT_PRESENTATION_SECTIONS.map((key) => ({ key }))
   return source.sections.flatMap((selector) => parsePresentationSection(selector) ?? [])
+}
+
+/** The sections a database source asks for, defaults applied (every part but the records and single queries). */
+export function databaseSections(source: { sections?: string[] }): DatabaseSectionSelector[] {
+  if (!source.sections) return DEFAULT_DATABASE_SECTIONS.map((key) => ({ key, name: null }))
+  return source.sections.flatMap((selector) => parseDatabaseSection(selector) ?? [])
 }
 
 export interface QuestionEvidenceCheck {
@@ -164,6 +197,7 @@ const SOURCE_FIELDS: Record<QuestionEvidenceSource, readonly string[]> = {
   file: ["source", "slot", "required"],
   evidence_section: ["source", "slot", "heading", "want", "required"],
   reference_file: ["source", "fileName"],
+  database: ["source", "slot", "sections", "required"],
 }
 
 const MISSING_FIELD: Record<string, string> = {
@@ -224,20 +258,27 @@ function issueText(error: z.ZodError): string {
   return field ? `${field} ${issue.message}` : issue.message
 }
 
+/** What a database source's selectors may be, for a message. */
+const DATABASE_SECTION_LIST = `${DATABASE_SECTION_KEYS.filter((key) => key !== "query").join(", ")}, records:TABLE or query:NAME`
+
 /**
  * Check every question's evidence against the activity's body (its upload
- * slots). All questions are checked together, so a problem anywhere is found
- * before anything is saved.
+ * slots) and its practical type (the sources it takes). All questions are
+ * checked together, so a problem anywhere is found before anything is saved.
  */
 export function validateQuestionEvidence(
   questions: QuestionEvidenceCheck[],
   body: unknown,
+  type: PracticalAssessmentType = "powerpoint-assessment",
 ): QuestionEvidenceValidation {
   const errors: string[] = []
   const evidence: QuestionEvidence[][] = []
+  const config = practicalTypeConfig(type)
+  const allowed = config.sources as readonly string[]
+  const allowedList = config.sources.join(", ")
 
-  const parsedBody = PowerPointAssessmentActivityBodySchema.safeParse(body ?? {})
-  const slots: PowerPointUploadSlot[] = parsedBody.success ? parsedBody.data.uploadSlots : []
+  const parsedBody = config.bodySchema.safeParse(body ?? {})
+  const slots: PracticalUploadSlot[] = parsedBody.success ? (parsedBody.data as { uploadSlots: PracticalUploadSlot[] }).uploadSlots : []
   if (!parsedBody.success) {
     errors.push(`The activity's upload slots are not set up: ${issueText(parsedBody.error)}.`)
   }
@@ -258,11 +299,17 @@ export function validateQuestionEvidence(
     question.evidence.forEach((raw, index) => {
       const where = `Question "${label}", evidence source ${index + 1}`
       const sourceName = raw && typeof raw === "object" ? (raw as { source?: unknown }).source : undefined
-      if (typeof sourceName !== "string" || !(QUESTION_EVIDENCE_SOURCES as readonly string[]).includes(sourceName)) {
+      if (typeof sourceName !== "string" || !allowed.includes(sourceName)) {
+        // A source another practical type takes is named as such, except on
+        // a PowerPoint assessment, whose messages predate the other types.
+        const otherType = typeof sourceName === "string" && config.type !== "powerpoint-assessment"
+          && (QUESTION_EVIDENCE_SOURCES as readonly string[]).includes(sourceName)
         errors.push(
           sourceName === undefined || sourceName === null
-            ? `${where} has no source; choose one of ${QUESTION_EVIDENCE_SOURCES.join(", ")}.`
-            : `${where} has an unknown source ${JSON.stringify(sourceName)}; use one of ${QUESTION_EVIDENCE_SOURCES.join(", ")}.`,
+            ? `${where} has no source; choose one of ${allowedList}.`
+            : otherType
+              ? `${where} has the source ${JSON.stringify(sourceName)}, which a ${config.labelLower} does not take; use one of ${allowedList}.`
+              : `${where} has an unknown source ${JSON.stringify(sourceName)}; use one of ${allowedList}.`,
         )
         return
       }
@@ -317,6 +364,31 @@ export function validateQuestionEvidence(
         return
       }
 
+      if (source.source === "database" && source.sections) {
+        const canonical: string[] = []
+        const seen = new Set<string>()
+        for (const selector of source.sections) {
+          const section = parseDatabaseSection(selector)
+          if (!section) {
+            errors.push(
+              `${where} asks for the section ${JSON.stringify(selector)}, which is not one; use ${DATABASE_SECTION_LIST}.`,
+            )
+            return
+          }
+          const text = formatDatabaseSection(section)
+          // Access names ignore case, so records:OWNERS and records:owners are one table.
+          const key = section.name === null ? section.key : `${section.key}:${databaseNameKey(section.name)}`
+          if (seen.has(key)) {
+            errors.push(`${where} asks for the section "${text}" twice.`)
+            return
+          }
+          seen.add(key)
+          canonical.push(text)
+        }
+        sources.push({ ...source, sections: canonical })
+        return
+      }
+
       if (source.source === "slide_images" && source.slides && new Set(source.slides).size !== source.slides.length) {
         errors.push(`${where} lists a slide twice.`)
         return
@@ -343,7 +415,7 @@ export function validateQuestionEvidence(
 
     if (question.marking !== "teacher" && !question.evidence.some((raw) => {
       const name = raw && typeof raw === "object" ? (raw as { source?: unknown }).source : undefined
-      return typeof name === "string" && name !== "reference_file" && (QUESTION_EVIDENCE_SOURCES as readonly string[]).includes(name)
+      return typeof name === "string" && name !== "reference_file" && allowed.includes(name)
     })) {
       errors.push(
         `Question "${label}" has no evidence from the pupil's files, so the marker would see nothing to mark. Add a source, or mark it yourself.`,
@@ -354,9 +426,11 @@ export function validateQuestionEvidence(
   return { errors, evidence }
 }
 
-/** The upload slots a new PowerPoint assessment starts with: the presentation alone. */
-export function defaultPowerPointAssessmentBody(): { uploadSlots: PowerPointUploadSlot[] } {
-  return { uploadSlots: [{ key: "presentation", label: "Presentation", kind: "pptx", required: true }] }
+export { defaultPowerPointAssessmentBody }
+
+/** The upload slots a new activity of a practical type starts with. */
+export function defaultPracticalBody(type: PracticalAssessmentType): { uploadSlots: PracticalUploadSlot[] } {
+  return practicalTypeConfig(type).defaultBody()
 }
 
 /** A slot key from its label: lower-case letters, digits and hyphens. */
@@ -376,9 +450,14 @@ export function slotKeyFromLabel(label: string, taken: Iterable<string> = []): s
   }
 }
 
-/** A body's first problem as one sentence, or null when it parses. */
+/** A PowerPoint assessment body's first problem as one sentence, or null when it parses. */
 export function powerPointBodyProblem(body: unknown): string | null {
-  const parsed = PowerPointAssessmentActivityBodySchema.safeParse(body ?? {})
+  return practicalBodyProblem(body, "powerpoint-assessment")
+}
+
+/** A practical assessment body's first problem as one sentence, or null when it parses. */
+export function practicalBodyProblem(body: unknown, type: PracticalAssessmentType): string | null {
+  const parsed = practicalTypeConfig(type).bodySchema.safeParse(body ?? {})
   if (parsed.success) return null
   const issue = parsed.error.issues[0]
   const [first, index, field] = issue.path

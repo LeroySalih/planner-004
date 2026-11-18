@@ -437,6 +437,13 @@ picks scripts with no rows at all.
 Over MCP, `set_assessment_activity_questions` takes `marking` and `depends_on`
 (an earlier label) per question, both kept when omitted; its input schema is
 `AssessmentActivityQuestionsInput` in `src/lib/mcp/assessment-activities.ts`.
+Its `remark` (default true) re-marks the questions whose `mark_scheme` text
+changed on latest submissions whose read is complete, through
+`listQuestionsToRemark` / `remarkAssessmentQuestions` (store.ts): not
+teacher-only, blank, fully teacher-marked or folded; the marker's and legacy
+rows go, teacher rows and a teacher's comment stay, a waiting job is left and
+a running one replaced, and the result's `remarking` counts what was queued.
+`remark: false` saves only. Tests: `tests/assessment-paper/mark-scheme-remark.check.ts`.
 `get_assessment_activity` reports each pupil's read/mark progress and
 `get_assessment_activity_result` each question's answer as read. Tests:
 `tests/assessment-paper/mark-scheme-split.check.ts`.
@@ -482,9 +489,26 @@ the read and the mark are its own (`src/lib/powerpoint-assessment/`). Test the
 type with `isPowerPointAssessmentType` / `isAssessmentPaperType`, never
 `isQuestionMarkedActivityType`, wherever scripts or files are involved. It is
 the generic **PowerPoint** flow: nothing in code knows a particular paper;
-slots, headings, sections and images are the teacher's data. Spreadsheets,
-databases and other file types will be separate activity types, not readers
-added here.
+slots, headings, sections and images are the teacher's data.
+
+**Practical types share this machinery** (`PRACTICAL_ASSESSMENT_TYPES` =
+`powerpoint-assessment`, `database-assessment`; see *Database assessments*).
+Files, slots, hand-in, *Undo hand in*, Request Resubmission, read/mark jobs,
+results, pupil view, feedback and MCP in `src/lib/powerpoint-assessment/`
+serve both; the modules and exported names (`storePracticalFile`,
+`handInPowerPointAssessment`, `reopenPowerPointAssessment`, result/MCP field
+`powerpoint`, MCP `hand_in_powerpoint_assessment`) keep their PowerPoint names.
+What differs is data in the registry `src/lib/practical-assessment/types.ts`
+(`PRACTICAL_TYPE_CONFIGS` / `practicalTypeConfig(type)`: label, body schema,
+slot kinds, main kind, allowed evidence sources, default body,
+`hasSuppliedImages`, `hasStartingDatabase`) plus per-type marking text
+(`MARK_TEXT` in `marking.ts`). The reader and marker branch on **slot kind**
+(`pptx`, `accdb`, `pdf`, `docx`), never type. Test with
+`isPracticalAssessmentType` for anything generic, `isPowerPointAssessmentType`
+/ `isDatabaseAssessmentType` only for the type-specific parts (supplied images
+and slide rendering are PowerPoint-only). `validateQuestionEvidence(questions,
+body, type)` and `practicalBodyProblem(body, type)` take the type. Further file
+types (spreadsheets …) are new registry entries and slot-kind readers.
 
 - **Upload slots** (`body_data.uploadSlots`, `PowerPointAssessmentActivityBodySchema`):
   1–8, exactly one `pptx` slot (the presentation, required); `pdf` printouts
@@ -500,8 +524,8 @@ added here.
   `reopenPowerPointAssessmentAction`) sets the work back to `inprogress` on the
   same attempt: files kept, open read/mark jobs dropped, AI marks cleared
   (teacher rows kept), open question flags cleared as that teacher; the pupil
-  can change files and hand in again. **Request Resubmission** on a
-  PowerPoint assessment does the same (`requestResubmissionAction`, through
+  can change files and hand in again (any practical type). **Request
+  Resubmission** on a practical assessment does the same (`requestResubmissionAction`, through
   `reopenPowerPointAssessmentForTeacher` in `reopen.ts`); the pupil sees the
   teacher's note above their slots, and handing in clears the request.
 - **Supplied images** (`practical_supplied_images`, lessons bucket, generated
@@ -520,7 +544,11 @@ added here.
 - **Read** (`ai_read`, `reading.ts`, no model): pptx by the inspector
   (`inspectPptx` + `describePresentationSections`); the EVIDENCE `.docx` by
   heading (`src/lib/docx/evidence.ts`: a heading is a paragraph starting with
-  the label; the blank template's paragraphs removed; pictures normalised and
+  the label; the blank template's paragraphs removed; a plain template
+  heading no question names (label-shaped, e.g. "9  Create a report", not a
+  sub-part of the current label) ends the section above it and what follows
+  is *unplaced*; a docx's cache key carries `EVIDENCE_DOC_READER_VERSION`,
+  bumped when this changes); pictures normalised and
   stored teacher-only under `evidence/`; pictures outside every heading kept
   as *unplaced*, never marked); PDFs by poppler (`src/lib/pdf/poppler.ts`:
   page count, text capped). A pptx some question reads as `slide_images` is
@@ -566,8 +594,8 @@ added here.
   files, hand-in and the marker's note; `create_assessment_activity_file_upload_link`
   kinds `supplied_image` (10 MB) and `practical_file` (pupil + slot, 25 MB,
   does not hand in); `get_practical_assessment_evidence` (what the reader
-  stored, no picture data); `hand_in_powerpoint_assessment`. The script link
-  is refused for this type. See `docs/MCP.md`.
+  stored, no picture data); `hand_in_powerpoint_assessment` (either practical
+  type). The script link is refused for practical types. See `docs/MCP.md`.
 - **Migration 143**: the type in `is_question_marked_activity_type` and
   `is_scorable_activity_type`, `activity_questions.evidence`,
   `practical_supplied_images`, `practical_submission_files`,
@@ -579,16 +607,82 @@ added here.
   files, reading, read-guards, blank-reasons, marking, results, pupil-view,
   editor, mcp), plus `tests/pptx/inspect.check.ts`.
 
-### Pupil feedback and per-question flags (both question-marked types)
+### Database assessments
 
-Both pupil views (assessment paper and PowerPoint assessment) show feedback the
+A `database-assessment` (migration 146) is the second practical type: a
+Microsoft Access `.accdb` plus an EVIDENCE `.docx` (screenshots and typed
+answers under headings), marked per question exactly as a PowerPoint
+assessment, on the same tables, jobs, views and MCP tools. Only the parts
+below differ.
+
+- **Slots** (`DatabaseAssessmentActivityBodySchema`, kinds `accdb`/`pdf`/`docx`):
+  1–8, exactly one `accdb` slot, required; default body `database` +
+  `evidence`. No supplied images, no `presentation`/`slide_images` sources.
+- **Starting database**: `body_data.startingDatabaseFile`, an ordinary
+  activity file (`.accdb`, no folders), like `evidenceTemplateFile`. Pupils
+  download it; each pupil's database is diffed against it; its sha256 is in
+  the accdb cache key. The editor checks it with `checkStartingDatabaseAction`
+  (`checkActivityStartingDatabase`, `powerpoint-assessment/editor.ts`). A
+  missing or unreadable starting database is a warning (changes not listed),
+  never a hold.
+- **Reader** (`src/lib/accdb/`, no model): `mdbtools.ts` runs `mdb-ver`,
+  `mdb-tables`, `mdb-schema`, `mdb-prop`, `mdb-json`, `mdb-queries` by
+  `execFile` on a temp copy in its own `mkdtemp` dir (30 s per tool, 16 MB
+  output, 120 s per read). `read.ts` (`readAccessDatabase`) checks the header
+  first (`sniffAccessHeader`: "Standard ACE DB"), then builds a
+  `DatabaseSnapshot` (`types.ts`): tables, fields, lookups, saved sort/filter,
+  records (≤ 1000 per table, dates DD-MM-YYYY), relationships (referential
+  integrity from DAO `grbit & 2` = not enforced), saved query designs, forms
+  and reports with their base table where recorded. Form/report **design is
+  not decoded**. `diff.ts` (`diffDatabases`, records matched by each table's
+  first field). `describe.ts` (`describeDatabaseSections`, `filterDatabaseSections`;
+  ≤ 200 records shown per table; query criteria dates keep Access's
+  `#m/d/yyyy#` with the date in words). Upload runs the light
+  `checkAccessDatabase` (`check.ts`). `UnreadableDatabaseError` /
+  `DATABASE_MESSAGES` (`errors.ts`): `.mdb`, `.laccdb`, not Access, and one
+  combined password-or-damaged message, refused at upload and holding the
+  submission at read; a plain `Error` (tool missing, timeout) retries.
+  Stored as `practical_submission_evidence.kind = 'database'`, cache key
+  file sha256 + starting database hash + `DATABASE_READER_VERSION`.
+- **`database` evidence source** (`{source, slot, sections?, required?}`,
+  `section-selectors.ts`): `tables`, `fields`, `relationships`, `lookups`,
+  `table-sort`, `records`, `records:TABLE`, `changes`, `queries`,
+  `query:NAME`, `objects`, `warnings`; default all but records and single
+  queries (`DEFAULT_DATABASE_SECTIONS`); names compared by `databaseNameKey`
+  (case-insensitive). A `required` source naming a table/query the database
+  lacks is blank ("There is no saved query called X in your database.").
+- **Mark**: `DATABASE_MARK_SYSTEM` (`src/lib/database-assessment/marking-text.ts`,
+  via `MARK_TEXT`): PowerPoint's rules, plus the report is exact and wins over
+  a screenshot about what is in the database, it gives query designs never
+  results, criteria dates are month-first, design is judged from screenshots
+  only. Route `('database-assessment', NULL)`, seeded from PowerPoint's. The
+  marker gets `slot_key.accdb`, never the pupil's file name. The "Name /
+  Class" lines before the first heading are unplaced, teacher-only.
+- **Views**: the results panel's *Pupil's files* adds what the reader found
+  and the changes from the starting database (`DatabaseSummary`), and per
+  question the report text the marker was given (teacher-only). MCP as in
+  `docs/MCP.md` *Database assessment activities*.
+- **Runtime**: `mdbtools` is installed in the `Dockerfile-dino` runner (with
+  poppler-utils). Prod needs migration 146 **and** an image rebuild.
+- **Setup from a spec**: `scripts/setup-powerpoint-assessment.sh
+  scripts/database-assessments/*.json [--apply]` (spec `"type":
+  "database-assessment"`, `starting_database_file`, read in the dry run;
+  `--copy` is PowerPoint-only). Spec: `palm-grove-vets.json` (68 one-mark
+  questions).
+- Tests: `tests/database-assessment/*.check.ts` (config, reader, describe,
+  questions, evidence-doc, files, reading, marking, results, pupil-view,
+  editor, mcp).
+
+### Pupil feedback and per-question flags (all question-marked types)
+
+All three pupil views (assessment paper, PowerPoint and database assessment) show feedback the
 same way, through one component, `AssessmentQuestionFeedback`
 (`src/components/pupil/assessment-question-feedback.tsx`). Its data comes from
 one builder, `buildPupilAssessmentFeedback` (`src/lib/assessment-paper/pupil-feedback.ts`):
 the total, the teacher's comment, the PDF, then per question the mark, the
 effective comments and the pupil's flag. It never carries `ai_awarded`,
 `marker_evidence`, the mark scheme, the transcription or `mark_error`. Each type
-says which questions show their marks: PowerPoint keeps
+says which questions show their marks: both practical types use
 `powerPointQuestionShownToPupil`; a paper shows a question once the paper is
 `marked`, or earlier when a teacher (or legacy) mark is on it
 (`assessmentPaperQuestionShownToPupil`). Both are released by
@@ -609,8 +703,8 @@ flag** (`toggleSubmissionFlagAction` with `false`) resolves every open question
 flag on the submission as that teacher. A pupil calling that action on a
 question-marked activity is refused, and so is a teacher setting a flag. A new
 attempt closes the earlier attempts' open flags as withdrawn (trigger
-`submission_question_flags_close_earlier`). A PowerPoint question cannot be
-flagged before hand-in. The results panel shows *Flagged by pupil*,
+`submission_question_flags_close_earlier`). A practical (PowerPoint or
+database) question cannot be flagged before hand-in. The results panel shows *Flagged by pupil*,
 a *Clear flag* bar per question (`clearAssessmentQuestionFlagAction`) and each
 question's flag history. MCP reports `flag` per question and `questions_flagged`
 per pupil. Tests: `tests/assessment-paper/question-flags.check.ts`.
@@ -874,6 +968,10 @@ mcq_options: z.preprocess(
   z.array(z.object({ id: z.string(), text: z.string() })),
 ).optional()
 ```
+
+### Marking prompts
+
+`get_activity_marking_prompt` / `set_activity_marking_prompt` (`src/lib/mcp/marking-prompts.ts`) read and write `body_data.markingGuidance` of short-text-question, upload-code, upload-spreadsheet, upload-worksheet, mark-worksheet and upload-file (with its `ai_marking` switch). Writes go through `updateActivity`, and the worksheet types are checked against their body schemas there too. Question-marked types are refused and pointed to `set_assessment_activity_questions`. The tool's `remark` (default true) re-marks each pupil's latest submission already sent for marking when the prompt text changed, through `enqueueMarkingTasks` (`src/lib/mcp/marking-prompt-remark.ts`; not fully teacher-marked work, not an upload-file with Mark with AI off); `false` saves only. Tests: `tests/mcp/marking-prompts.check.ts`, `tests/mcp/marking-prompt-remark.check.ts`.
 
 ### short-text-question and multiple-choice-question body_data field names
 

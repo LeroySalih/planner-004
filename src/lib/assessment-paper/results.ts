@@ -1,7 +1,9 @@
 import "server-only"
 
 import { query } from "@/lib/db"
-import { isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
+import { isPracticalAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
+import { describeDatabaseSections, filterDatabaseSections } from "@/lib/accdb/describe"
+import { formatDatabaseSection } from "@/lib/accdb/section-selectors"
 import {
   listQuestionsAwaitingCheck,
   readAssessmentQuestions,
@@ -13,7 +15,7 @@ import {
 import { ASSESSMENT_SCRIPTS_BUCKET } from "@/lib/assessment-paper/files"
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
-import { evidenceHeading, type QuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
+import { databaseSections, evidenceHeading, type QuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
 import {
   evidenceFromRow,
   evidenceLabelKey,
@@ -22,11 +24,8 @@ import {
   type SlotEvidence,
   type StoredEvidenceImage,
 } from "@/lib/powerpoint-assessment/reading"
-import {
-  AssessmentPaperActivityBodySchema,
-  PowerPointAssessmentActivityBodySchema,
-  type PowerPointUploadSlotKind,
-} from "@/types"
+import { practicalBodySchema } from "@/lib/practical-assessment/types"
+import { AssessmentPaperActivityBodySchema, type PracticalUploadSlot, type PracticalUploadSlotKind } from "@/types"
 
 // One pupil's result on an assessment paper, question by question, as the
 // results page (teacher) and the feedback PDF read it. What a pupil's lesson
@@ -73,19 +72,28 @@ export type AssessmentResultQuestion = {
   provenance: QuestionMarkProvenance | null
   criteria: AssessmentResultCriterion[]
   /**
-   * PowerPoint assessment: where the question's evidence comes from
+   * Practical assessment: where the question's evidence comes from
    * (evidence-spec.ts). [] on an assessment paper. Teacher views only.
    */
   evidenceSources: QuestionEvidence[]
   /**
-   * PowerPoint assessment: the pictures the marker is given for this
+   * Practical assessment: the pictures the marker is given for this
    * question, from the files read: the screenshots under its evidence
    * headings and the slides drawn for it. Teacher views only.
    */
   evidenceImages: AssessmentEvidenceImage[]
-  /** PowerPoint assessment: the marker's note on the evidence. Teacher views only: never pass it to a pupil. */
+  /**
+   * Database assessment: per `database` source, the same database report
+   * sections the marker is given, rebuilt from the stored report. [] on any
+   * other type. Teacher views only: never pass it to a pupil.
+   */
+  evidenceTexts: AssessmentEvidenceText[]
+  /** Practical assessment: the marker's note on the evidence. Teacher views only: never pass it to a pupil. */
   markerEvidence: string | null
 }
+
+/** A text the marker is given for one question, as the teacher sees it. */
+export type AssessmentEvidenceText = { title: string; text: string }
 
 /** A picture the reader stored from a pupil's file (teacher-only /api/files URL). */
 export type AssessmentEvidenceImage = {
@@ -95,11 +103,11 @@ export type AssessmentEvidenceImage = {
   height: number
 }
 
-/** One upload slot of a PowerPoint assessment and the pupil's file in it. */
+/** One upload slot of a practical assessment and the pupil's file in it. */
 export type PowerPointResultFile = {
   slotKey: string
   label: string
-  kind: PowerPointUploadSlotKind
+  kind: PracticalUploadSlotKind
   required: boolean
   /** The rest are null while the slot is empty. */
   name: string | null
@@ -109,9 +117,23 @@ export type PowerPointResultFile = {
   /** Null until the reader has read it. */
   evidenceStatus: "ok" | "error" | null
   evidenceError: string | null
+  /** A database the reader read: what it holds and how it differs from the starting database. Null otherwise. */
+  database: DatabaseFileSummary | null
 }
 
-/** A PowerPoint assessment's files on one submission, in place of a script. Teacher views only. */
+/** What the reader found in a pupil's database, for the results panel. Teacher views only. */
+export type DatabaseFileSummary = {
+  tables: Array<{ name: string; records: number }>
+  queries: string[]
+  forms: string[]
+  reports: string[]
+  /** The starting database it was compared with, or null when there is none to compare with. */
+  startingDatabase: string | null
+  /** The changes from the starting database, one line each; null when not compared. */
+  changes: string[] | null
+}
+
+/** A practical assessment's files (PowerPoint or database) on one submission, in place of a script. Teacher views only. */
 export type PowerPointResultFiles = {
   handedIn: boolean
   files: PowerPointResultFile[]
@@ -147,7 +169,7 @@ export type AssessmentPaperResult = {
   /** Null until any question is marked. */
   marksAwarded: number | null
   script: AssessmentScriptFiles | null
-  /** A PowerPoint assessment's files; null on an assessment paper. */
+  /** A practical assessment's files (PowerPoint or database); null on an assessment paper. */
   powerpoint: PowerPointResultFiles | null
   questions: AssessmentResultQuestion[]
   /** Questions awaiting a teacher's check on this pupil's script. */
@@ -180,7 +202,7 @@ export async function readAssessmentPaperResult(
   if (!activity) throw new Error("Activity not found.")
   if (!isQuestionMarkedActivityType(activity.type)) throw new Error("This activity is not an assessment paper.")
   const body = AssessmentPaperActivityBodySchema.safeParse(activity.body_data ?? {})
-  const isPowerPoint = isPowerPointAssessmentType(activity.type)
+  const isPractical = isPracticalAssessmentType(activity.type)
 
   const { rows: submissionRows } = await query<{
     submission_id: string
@@ -203,7 +225,7 @@ export async function readAssessmentPaperResult(
   const questions = await readAssessmentQuestions(activityId)
   const criterionIds = Array.from(new Set(questions.flatMap((q) => q.criteria.map((c) => c.successCriteriaId))))
 
-  const [descriptionRows, questionMarkRows, criterionMarkRows, scriptRows, answers, awaitingOnPaper, powerPointRead] = await Promise.all([
+  const [descriptionRows, questionMarkRows, criterionMarkRows, scriptRows, answers, awaitingOnPaper, practicalRead] = await Promise.all([
     query<{ success_criteria_id: string; description: string | null }>(
       "select success_criteria_id, description from success_criteria where success_criteria_id = any($1::text[])",
       [criterionIds],
@@ -228,7 +250,7 @@ export async function readAssessmentPaperResult(
          from submission_question_criterion_marks where submission_id = $1`,
       [resolvedSubmissionId],
     ),
-    resolvedSubmissionId && !isPowerPoint
+    resolvedSubmissionId && !isPractical
       ? query<{
           script_id: string
           page_count: number
@@ -249,7 +271,7 @@ export async function readAssessmentPaperResult(
       ? readSubmissionAnswers(resolvedSubmissionId)
       : Promise.resolve(new Map<string, SubmissionQuestionAnswer>()),
     listQuestionsAwaitingCheck(activityId),
-    isPowerPoint ? readPowerPointEvidence(resolvedSubmissionId) : Promise.resolve(null),
+    isPractical ? readPracticalEvidence(resolvedSubmissionId) : Promise.resolve(null),
   ])
   const awaitingHere = new Set(
     awaitingOnPaper.filter((row) => row.submissionId === resolvedSubmissionId).map((row) => row.questionId),
@@ -262,6 +284,8 @@ export async function readAssessmentPaperResult(
     criterionMarkRows.rows.map((row) => [`${row.question_id}|${row.success_criteria_id}`, row]),
   )
   const script = scriptRows.rows[0]
+  const practicalBody = isPractical ? practicalBodySchema(activity.type).safeParse(activity.body_data ?? {}) : null
+  const slots = practicalBody?.success ? (practicalBody.data as { uploadSlots: PracticalUploadSlot[] }).uploadSlots : []
 
   return {
     activityId,
@@ -286,8 +310,8 @@ export async function readAssessmentPaperResult(
           })),
         }
       : null,
-    powerpoint: isPowerPoint
-      ? powerPointFiles(activity.body_data, submission?.submission_status === "submitted", powerPointRead!, questions)
+    powerpoint: isPractical
+      ? practicalFiles(slots, submission?.submission_status === "submitted", practicalRead!, questions)
       : null,
     awaitingCheckCount: awaitingHere.size,
     paperAwaitingCheck: {
@@ -324,15 +348,16 @@ export async function readAssessmentPaperResult(
             aiAwarded: row?.ai_awarded === null || row?.ai_awarded === undefined ? null : Number(row.ai_awarded),
           }
         }),
-        evidenceSources: isPowerPoint ? q.evidence : [],
-        evidenceImages: isPowerPoint ? questionEvidenceImages(q, powerPointRead!) : [],
-        markerEvidence: powerPointRead?.markerEvidence.get(q.questionId) ?? null,
+        evidenceSources: isPractical ? q.evidence : [],
+        evidenceImages: isPractical ? questionEvidenceImages(q, practicalRead!) : [],
+        evidenceTexts: isPractical ? questionEvidenceTexts(q, slots, practicalRead!) : [],
+        markerEvidence: practicalRead?.markerEvidence.get(q.questionId) ?? null,
       }
     }),
   }
 }
 
-type PowerPointEvidenceRead = {
+type PracticalEvidenceRead = {
   files: Array<{
     fileId: string
     slotKey: string
@@ -344,8 +369,8 @@ type PowerPointEvidenceRead = {
   markerEvidence: Map<string, string>
 }
 
-/** A PowerPoint submission's files with what the reader made of each, and the marker's notes. */
-async function readPowerPointEvidence(submissionId: string | null): Promise<PowerPointEvidenceRead> {
+/** A practical submission's files with what the reader made of each, and the marker's notes. */
+async function readPracticalEvidence(submissionId: string | null): Promise<PracticalEvidenceRead> {
   if (!submissionId) return { files: [], markerEvidence: new Map() }
   const [{ rows: fileRows }, { rows: noteRows }] = await Promise.all([
     query<{
@@ -401,14 +426,12 @@ function evidenceImage(image: Pick<StoredEvidenceImage, "path" | "width" | "heig
   return { url: assessmentScriptUrl(image.path), caption, width: image.width, height: image.height }
 }
 
-function powerPointFiles(
-  bodyData: unknown,
+function practicalFiles(
+  slots: PracticalUploadSlot[],
   handedIn: boolean,
-  read: PowerPointEvidenceRead,
+  read: PracticalEvidenceRead,
   questions: Array<{ label: string; evidence: QuestionEvidence[] }>,
 ): PowerPointResultFiles {
-  const body = PowerPointAssessmentActivityBodySchema.safeParse(bodyData ?? {})
-  const slots = body.success ? body.data.uploadSlots : []
   const fileOf = new Map(read.files.map((file) => [file.slotKey, file]))
   const labelOf = (slotKey: string) => slots.find((slot) => slot.key === slotKey)?.label ?? slotKey
 
@@ -452,11 +475,28 @@ function powerPointFiles(
         uploadedAt: file?.uploadedAt ?? null,
         evidenceStatus: file?.evidence?.status ?? null,
         evidenceError: file?.evidence?.status === "error" ? file.evidence.error : null,
+        database: file?.evidence ? databaseFileSummary(file.evidence) : null,
       }
     }),
     missingHeadings,
     warnings,
     unplacedImages,
+  }
+}
+
+function databaseFileSummary(evidence: SlotEvidence): DatabaseFileSummary | null {
+  if (evidence.status !== "ok" || evidence.kind !== "database") return null
+  const { snapshot, changes, startingDatabase } = evidence.report
+  const changesSection = changes
+    ? describeDatabaseSections(evidence.report).find((section) => section.selector === "changes")
+    : undefined
+  return {
+    tables: snapshot.tables.map((table) => ({ name: table.name, records: table.rowCount })),
+    queries: snapshot.queries.map((q) => q.name),
+    forms: snapshot.forms.map((form) => form.name),
+    reports: snapshot.reports.map((report) => report.name),
+    startingDatabase: changes ? (startingDatabase?.fileName ?? null) : null,
+    changes: changesSection ? changesSection.text.split("\n").slice(1).map((line) => line.replace(/^  /, "")).filter((line) => line.trim() !== "") : null,
   }
 }
 
@@ -468,7 +508,7 @@ function powerPointFiles(
  */
 function questionEvidenceImages(
   question: { label: string; evidence: QuestionEvidence[] },
-  read: PowerPointEvidenceRead,
+  read: PracticalEvidenceRead,
 ): AssessmentEvidenceImage[] {
   const images: AssessmentEvidenceImage[] = []
   for (const source of question.evidence) {
@@ -488,6 +528,34 @@ function questionEvidenceImages(
     }
   }
   return images
+}
+
+/**
+ * The database report texts one question's `database` sources give the
+ * marker, as the marker assembles them (src/lib/powerpoint-assessment/marking.ts):
+ * the selected sections, with a block of its own for a named table or query
+ * the database does not have. Titled by slot label, never the file's name.
+ */
+function questionEvidenceTexts(
+  question: { evidence: QuestionEvidence[] },
+  slots: PracticalUploadSlot[],
+  read: PracticalEvidenceRead,
+): AssessmentEvidenceText[] {
+  const texts: AssessmentEvidenceText[] = []
+  for (const source of question.evidence) {
+    if (source.source !== "database") continue
+    const evidence = read.files.find((file) => file.slotKey === source.slot)?.evidence
+    if (!evidence || evidence.status !== "ok" || evidence.kind !== "database") continue
+    const formatted = databaseSections(source).map(formatDatabaseSection)
+    const sections = filterDatabaseSections(describeDatabaseSections(evidence.report), formatted)
+    const slotLabel = slots.find((slot) => slot.key === source.slot)?.label ?? source.slot
+    const what = source.sections ? formatted.join(", ") : "every part but records"
+    texts.push({
+      title: `Database report, ${slotLabel}, ${what}`,
+      text: sections.length > 0 ? sections.map((s) => s.text).join("\n\n") : "(none of these parts is in the database)",
+    })
+  }
+  return texts
 }
 
 export type TeacherChangedQuestion = {

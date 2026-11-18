@@ -3,19 +3,21 @@ import "server-only"
 import { z } from "zod"
 
 import { query } from "@/lib/db"
-import { isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
+import { isPracticalAssessmentType, isQuestionMarkedActivityType, normalizeActivityType } from "@/dino.config"
 import { listHeldQuestionsToSend, listQuestionsAwaitingCheck, readAssessmentQuestions } from "@/lib/assessment-paper/store"
 import { countFrontSheetChecks, listUnmarkedScriptSubmissions } from "@/lib/assessment-paper/files"
 import { listUnmarkedPowerPointSubmissions } from "@/lib/powerpoint-assessment/files"
 import type { QuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
-import { AssessmentPaperActivityBodySchema, PowerPointAssessmentActivityBodySchema, PowerPointUploadSlotSchema } from "@/types"
+import { practicalBodySchema } from "@/lib/practical-assessment/types"
+import { AssessmentPaperActivityBodySchema, PRACTICAL_UPLOAD_SLOT_KINDS, type PracticalUploadSlot, uploadSlotSchema } from "@/types"
 
 // An assessment paper as the lesson editor and the teacher views show it: its
 // files, questions (with each criterion's description), how many pupils have
 // a script uploaded and how those scripts fared in the front sheet check. A
-// PowerPoint assessment is read the same way, with its upload slots and its
-// questions' evidence sources; it has no scripts, so its script counts are 0
-// and `powerpoint` says how many pupils have files and have handed in.
+// practical assessment (PowerPoint or database) is read the same way, with
+// its upload slots and its questions' evidence sources; it has no scripts, so
+// its script counts are 0 and `powerpoint` (named before there was more than
+// one practical type) says how many pupils have files and have handed in.
 
 const QuestionCriterionSchema = z.object({
   successCriteriaId: z.string().min(1),
@@ -39,7 +41,7 @@ const QuestionSchema = z.object({
 
 const PowerPointSetupSchema = z.object({
   /** The stored slots; empty when the body does not parse (bodyProblem says why). */
-  uploadSlots: z.array(PowerPointUploadSlotSchema),
+  uploadSlots: z.array(uploadSlotSchema(PRACTICAL_UPLOAD_SLOT_KINDS)),
   bodyProblem: z.string().nullable(),
   evidenceTemplateFile: z.string().nullable(),
   /** Pupils with at least one file on their latest submission. */
@@ -50,7 +52,7 @@ const PowerPointSetupSchema = z.object({
 
 const SetupSchema = z.object({
   activityId: z.string(),
-  type: z.enum(["assessment-paper", "powerpoint-assessment"]),
+  type: z.enum(["assessment-paper", "powerpoint-assessment", "database-assessment"]),
   lessonId: z.string(),
   /** Σ of the questions: what activities.max_marks holds once there are any. */
   maxMarks: z.number().int(),
@@ -72,7 +74,7 @@ const SetupSchema = z.object({
   /** Questions held at the read for want of a mark scheme that have one now (Send held questions). */
   heldToSend: z.object({ questions: z.number().int(), pupils: z.number().int() }),
   questions: z.array(QuestionSchema),
-  /** Null on an assessment paper. */
+  /** Any practical assessment's files; null on an assessment paper. */
   powerpoint: PowerPointSetupSchema.nullable(),
 })
 
@@ -92,7 +94,7 @@ export async function readAssessmentPaperSetup(activityId: string): Promise<Asse
   const row = rows[0]
   if (!row) throw new Error("Activity not found.")
   if (!isQuestionMarkedActivityType(row.type)) throw new Error("This activity is not an assessment paper.")
-  const isPowerPoint = isPowerPointAssessmentType(row.type)
+  const isPractical = isPracticalAssessmentType(row.type)
 
   const parsed = AssessmentPaperActivityBodySchema.safeParse(row.body_data ?? {})
   const body = parsed.success ? parsed.data : {}
@@ -113,16 +115,16 @@ export async function readAssessmentPaperSetup(activityId: string): Promise<Asse
 
   const [frontSheetChecks, unmarked, awaiting, heldToSend, powerpoint] = await Promise.all([
     countFrontSheetChecks(activityId),
-    isPowerPoint ? listUnmarkedPowerPointSubmissions(activityId) : listUnmarkedScriptSubmissions(activityId),
+    isPractical ? listUnmarkedPowerPointSubmissions(activityId) : listUnmarkedScriptSubmissions(activityId),
     listQuestionsAwaitingCheck(activityId),
     listHeldQuestionsToSend(activityId),
-    isPowerPoint ? readPowerPointSetup(activityId, row.body_data) : Promise.resolve(null),
+    isPractical ? readPracticalSetup(activityId, row.type, row.body_data) : Promise.resolve(null),
   ])
   const labelOf = new Map(questions.map((q) => [q.questionId, q.label]))
 
   return SetupSchema.parse({
     activityId: row.activity_id,
-    type: isPowerPoint ? "powerpoint-assessment" : "assessment-paper",
+    type: normalizeActivityType(row.type),
     lessonId: row.lesson_id,
     maxMarks: questions.reduce((sum, q) => sum + q.maxMarks, 0),
     instructions: body.instructions ?? null,
@@ -159,8 +161,15 @@ export async function readAssessmentPaperSetup(activityId: string): Promise<Asse
   })
 }
 
-async function readPowerPointSetup(activityId: string, bodyData: unknown): Promise<z.infer<typeof PowerPointSetupSchema>> {
-  const body = PowerPointAssessmentActivityBodySchema.safeParse(bodyData ?? {})
+async function readPracticalSetup(
+  activityId: string,
+  type: string | null,
+  bodyData: unknown,
+): Promise<z.infer<typeof PowerPointSetupSchema>> {
+  const parsed = practicalBodySchema(type).safeParse(bodyData ?? {})
+  const body = parsed.success
+    ? { success: true as const, data: parsed.data as { uploadSlots: PracticalUploadSlot[]; evidenceTemplateFile?: string } }
+    : { success: false as const, error: parsed.error }
   const { rows } = await query<{ with_files: number; handed_in: number }>(
     `with latest as (
        select distinct on (s.user_id) s.submission_id, s.submission_status

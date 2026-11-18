@@ -2,12 +2,14 @@ import "server-only"
 
 import type { Queryable } from "@/lib/curriculum/unit-curriculum-guard"
 import { validateQuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
+import type { PracticalAssessmentType } from "@/lib/practical-assessment/types"
 
-// A PowerPoint assessment's upload slots changed by a body save (the lesson
-// editor or MCP update_activity). The questions' evidence names the slots, so
-// a slot it reads cannot be removed or change kind under it. One key removed
-// and one of the same kind added is a rename, carried into the questions'
-// evidence, the pupils' files, what was read from them and open upload links.
+// A practical assessment's (PowerPoint or database) upload slots changed by a
+// body save (the lesson editor or MCP update_activity). The questions'
+// evidence names the slots, so a slot it reads cannot be removed or change
+// kind under it. One key removed and one of the same kind added is a rename,
+// carried into the questions' evidence, the pupils' files, what was read from
+// them and open upload links.
 // A save that leaves the slots as they were (a title or the instructions) is
 // not checked against the evidence at all.
 
@@ -62,7 +64,7 @@ export async function applyUploadSlotChange(
   activityId: string,
   before: unknown,
   after: unknown,
-  options: { rename: boolean },
+  options: { rename: boolean; type: PracticalAssessmentType },
 ): Promise<{ errors: string[]; rename: { from: string; to: string } | null }> {
   if (slotsText(before) === slotsText(after)) return { errors: [], rename: null }
   const rename = options.rename ? slotRename(before, after) : null
@@ -98,6 +100,6 @@ export async function applyUploadSlotChange(
     "select label, marking, evidence from activity_questions where activity_id = $1 order by position, label",
     [activityId],
   )
-  const { errors } = validateQuestionEvidence(questions, after)
+  const { errors } = validateQuestionEvidence(questions, after, options.type)
   return { errors, rename }
 }

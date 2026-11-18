@@ -14,8 +14,11 @@ import {
 } from "@/lib/assessment-paper/store"
 import { markPowerPointQuestion } from "@/lib/powerpoint-assessment/marking"
 import { readPowerPointSubmission, type PowerPointReaders } from "@/lib/powerpoint-assessment/reading"
+import { isPracticalAssessmentType } from "@/dino.config"
+import { practicalTypeConfig } from "@/lib/practical-assessment/types"
 
-// The two queue jobs of a PowerPoint assessment, as an assessment paper's:
+// The two queue jobs of a practical assessment (PowerPoint or database), as
+// an assessment paper's:
 //
 //   ai_read  {submissionId, assignmentId}              one per hand-in; no model
 //   ai_mark  {submissionId, assignmentId, questionId}  one per question to mark
@@ -25,6 +28,20 @@ import { readPowerPointSubmission, type PowerPointReaders } from "@/lib/powerpoi
 // cannot be read, a required file missing) or hands the answers to the store
 // (completeAssessmentRead), which queues the marks. The queue worker
 // (marking-queue.ts) claims the job and handles retries and failure.
+
+/** "PowerPoint assessment" or "Database assessment", for the log; the type itself when it is not practical. */
+function labelOf(type: string | null | undefined): string {
+  return isPracticalAssessmentType(type) ? practicalTypeConfig(type).label : `${type ?? "Unknown"} activity`
+}
+
+/** The label of a submission's activity type, for the log. */
+async function submissionLabel(submissionId: string): Promise<string> {
+  const { rows } = await query<{ type: string | null }>(
+    "select a.type from submissions s join activities a on a.activity_id = s.activity_id where s.submission_id = $1",
+    [submissionId],
+  )
+  return rows[0] ? labelOf(rows[0].type) : "Practical assessment"
+}
 
 /**
  * Hold the submission: the read job (if still this run's) and any other open
@@ -71,7 +88,8 @@ export async function runPowerPointReadJob(
   job: AssessmentJob,
   readers?: PowerPointReaders,
 ): Promise<ReadCompletion & { held: string | null }> {
-  await logQueueEvent("info", `Reading PowerPoint assessment submission ${job.submissionId}`)
+  const label = await submissionLabel(job.submissionId)
+  await logQueueEvent("info", `Reading ${label} submission ${job.submissionId}`)
   const read = await readPowerPointSubmission({ submissionId: job.submissionId }, readers)
   await recordCall(job.jobId, read.call)
 
@@ -80,7 +98,7 @@ export async function runPowerPointReadJob(
     // rows and the log get the reason without them.
     const jobReason = read.heldForLog ?? read.held
     const held = await holdSubmission(job, read.held, jobReason)
-    await logQueueEvent("warn", `Held PowerPoint assessment submission ${job.submissionId}`, { reason: jobReason, held })
+    await logQueueEvent("warn", `Held ${label} submission ${job.submissionId}`, { reason: jobReason, held })
     if (held) {
       const { rows } = await query<{ activity_id: string; user_id: string }>(
         "select activity_id, user_id from submissions where submission_id = $1",
@@ -111,7 +129,7 @@ export async function runPowerPointReadJob(
     jobId: job.jobId,
     answers: read.answers,
   })
-  await logQueueEvent("info", `Read PowerPoint assessment submission ${job.submissionId}`, {
+  await logQueueEvent("info", `Read ${label} submission ${job.submissionId}`, {
     files: read.call.request.files.length,
     cached: read.call.request.files.filter((file) => file.cached).length,
     durationMs: read.call.durationMs,
@@ -130,7 +148,8 @@ export async function runPowerPointMarkJob(
 ): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean }> {
   const { activityId, type } = await activityOf(job.submissionId)
   const route = await resolveModelRoute(type, null)
-  await logQueueEvent("info", `Marking PowerPoint assessment submission ${job.submissionId}`, {
+  const label = labelOf(type)
+  await logQueueEvent("info", `Marking ${label} submission ${job.submissionId}`, {
     questionId: job.questionId,
     provider: route.provider,
     model: route.model,
@@ -142,7 +161,7 @@ export async function runPowerPointMarkJob(
   )
   if (marked.call) {
     await recordCall(job.jobId, marked.call)
-    await logQueueEvent("info", `Marked PowerPoint assessment submission ${job.submissionId}`, {
+    await logQueueEvent("info", `Marked ${label} submission ${job.submissionId}`, {
       questionId: job.questionId,
       marksAwarded: marked.call.response.marksAwarded,
       maxMarks: marked.call.request.maxMarks,

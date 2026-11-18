@@ -515,11 +515,12 @@ export type { PupilPowerPointView } from './powerpoint-assessment/pupil-view'
 
 export {
   checkEvidenceTemplateAction,
+  checkStartingDatabaseAction,
   listSuppliedImagesAction,
   renameSuppliedImageAction,
 } from './server-actions/powerpoint-assessment-editor'
 
-export type { EvidenceTemplateCheck } from './powerpoint-assessment/editor'
+export type { EvidenceTemplateCheck, StartingDatabaseCheck } from './powerpoint-assessment/editor'
 
 export type { AssessmentPaperSetup, AssessmentPaperSetupQuestion } from './assessment-paper/setup'
 export type { MarkSchemeProposal, MarkSchemeSplit } from './assessment-paper/mark-scheme-split'

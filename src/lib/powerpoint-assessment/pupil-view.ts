@@ -1,7 +1,7 @@
 import "server-only"
 
 import { query } from "@/lib/db"
-import { isPowerPointAssessmentType } from "@/dino.config"
+import { isPracticalAssessmentType } from "@/dino.config"
 import { assertPupilSitsAssessment } from "@/lib/assessment-paper/files"
 import {
   buildPupilAssessmentFeedback,
@@ -14,13 +14,16 @@ import { assessmentScriptUrl, pupilFeedbackVisible, readAssessmentPaperResult } 
 import { assessmentFeedbackPdfUrl } from "@/lib/assessment-paper/urls"
 import { isLessonLockedForUser } from "@/lib/lesson-lock"
 import { LESSONS_BUCKET, listSuppliedImages, readPracticalSlots } from "@/lib/powerpoint-assessment/files"
+import { practicalTypeConfig } from "@/lib/practical-assessment/types"
 import { pastVersionNames } from "@/lib/storage/file-versions"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
-import { PowerPointAssessmentActivityBodySchema, type PowerPointUploadSlotKind } from "@/types"
+import type { PracticalUploadSlotKind } from "@/types"
 
-// A PowerPoint assessment on the pupil's lesson page: the task, the files the
-// pupil needs, one upload slot per file they hand in, Hand in, where marking
-// has got to and, once feedback is released, their marks task by task.
+// A practical assessment (PowerPoint or database) on the pupil's lesson page:
+// the task, the files the pupil needs (for a database, the starting database
+// among them, as an ordinary activity file), one upload slot per file they
+// hand in, Hand in, where marking has got to and, once feedback is released,
+// their marks task by task.
 //
 // Built on the server for the pupil, so it carries nothing that is not
 // theirs to see: never the mark scheme (its PDF or any question's text), the
@@ -33,7 +36,7 @@ import { PowerPointAssessmentActivityBodySchema, type PowerPointUploadSlotKind }
 export type PupilPowerPointSlot = {
   key: string
   label: string
-  kind: PowerPointUploadSlotKind
+  kind: PracticalUploadSlotKind
   required: boolean
   hint: string | null
   file: {
@@ -55,7 +58,7 @@ export type PupilPowerPointView = {
   instructions: string | null
   /** Null when there is none, while downloads are blocked, or the pupil does not sit it. */
   questionPaperUrl: string | null
-  /** The activity's files and the images the task supplies. Empty while downloads are blocked. */
+  /** The activity's files and the images the task supplies (PowerPoint only). Empty while downloads are blocked. */
   downloads: PupilPowerPointDownload[]
   suppliedImages: PupilPowerPointDownload[]
   /** Downloads are blocked: the lesson is locked for this pupil. */
@@ -94,7 +97,7 @@ async function readActivityDownloads(lessonId: string, activityId: string): Prom
 }
 
 /**
- * The pupil's view of a PowerPoint assessment. `viewerIsTeacher` skips the
+ * The pupil's view of a practical assessment. `viewerIsTeacher` skips the
  * feedback-visibility check and the lesson lock (a teacher previewing, or
  * looking at a pupil's page).
  */
@@ -109,9 +112,13 @@ export async function readPupilPowerPointView(
   )
   const activity = rows[0]
   if (!activity) throw new Error("Activity not found.")
-  if (!isPowerPointAssessmentType(activity.type)) throw new Error("This activity is not a PowerPoint assessment.")
+  if (!isPracticalAssessmentType(activity.type)) throw new Error("This activity is not a practical assessment.")
+  const config = practicalTypeConfig(activity.type)
   const lessonId = activity.lesson_id
-  const body = PowerPointAssessmentActivityBodySchema.safeParse(activity.body_data ?? {})
+  const parsed = config.bodySchema.safeParse(activity.body_data ?? {})
+  const body = parsed.success
+    ? { success: true as const, data: parsed.data as { instructions?: string; questionPaperPath?: string } }
+    : { success: false as const }
   const rawInstructions = (activity.body_data as { instructions?: unknown } | null)?.instructions
   const instructions = body.success
     ? body.data.instructions?.trim() || null
@@ -131,7 +138,9 @@ export async function readPupilPowerPointView(
     ? [[], []]
     : await Promise.all([
         readActivityDownloads(lessonId, activityId),
-        listSuppliedImages(activityId).then((images) => images.map((image) => ({ name: image.file_name, url: image.url }))),
+        config.hasSuppliedImages
+          ? listSuppliedImages(activityId).then((images) => images.map((image) => ({ name: image.file_name, url: image.url })))
+          : Promise.resolve([]),
       ])
   const questionPaperPath = body.success ? body.data.questionPaperPath ?? null : null
   const questionPaperUrl =

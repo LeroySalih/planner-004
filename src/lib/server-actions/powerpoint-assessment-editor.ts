@@ -6,13 +6,17 @@ import { z } from "zod"
 import { getAuthenticatedProfile, hasRole, requireRole } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { listSuppliedImages } from "@/lib/powerpoint-assessment/files"
-import { checkActivityEvidenceTemplate, renameSuppliedImage } from "@/lib/powerpoint-assessment/editor"
+import {
+  checkActivityEvidenceTemplate,
+  checkActivityStartingDatabase,
+  renameSuppliedImage,
+} from "@/lib/powerpoint-assessment/editor"
 import { withTelemetry } from "@/lib/telemetry"
 
-// The lesson editor's PowerPoint assessment setup. The body (instructions,
-// upload slots, evidence template) saves through updateLessonActivityAction
-// and the questions through saveAssessmentQuestionsAction; these are the
-// rest. Teachers only.
+// The lesson editor's practical assessment setup (PowerPoint or database).
+// The body (instructions, upload slots, evidence template, starting
+// database) saves through updateLessonActivityAction and the questions
+// through saveAssessmentQuestionsAction; these are the rest. Teachers only.
 
 const ROUTE_TAG = "/lessons:powerpoint-assessment"
 
@@ -91,6 +95,27 @@ export async function checkEvidenceTemplateAction(activityId: string, fileName?:
       } catch (error) {
         console.error("[powerpoint-assessment] failed to check the evidence template", error)
         return { data: null, error: errorMessage(error, "Unable to check the evidence template.") }
+      }
+    },
+  )
+}
+
+/**
+ * Read an activity .accdb as a database assessment's starting database (the
+ * saved choice when no name is given): its tables with their record counts,
+ * and its saved queries, forms and reports, for the editor to show.
+ */
+export async function checkStartingDatabaseAction(activityId: string, fileName?: string | null) {
+  return withTelemetry(
+    { routeTag: ROUTE_TAG, functionName: "checkStartingDatabaseAction", params: { activityId, fileName } },
+    async () => {
+      await requireRole("teacher")
+      try {
+        const name = fileName == null ? null : z.string().parse(fileName)
+        return { data: await checkActivityStartingDatabase(IdSchema.parse(activityId), name), error: null }
+      } catch (error) {
+        console.error("[powerpoint-assessment] failed to check the starting database", error)
+        return { data: null, error: errorMessage(error, "Unable to read the starting database.") }
       }
     },
   )

@@ -8,6 +8,7 @@ import {
   readAssessmentPaperSetupAction,
   type AssessmentPaperSetup,
 } from "@/lib/server-updates"
+import { practicalTypeConfig } from "@/lib/practical-assessment/types"
 
 // Teacher read-only views of an assessment paper. The questions live in their
 // own tables, so they are read here rather than from the activity row. A
@@ -65,9 +66,11 @@ export function AssessmentPaperShortView({ activity }: { activity: LessonActivit
   )
 }
 
-function useSuppliedImageCount(activityId: string) {
+/** The number of supplied images, or null when unknown or (enabled false) the type has none. */
+function useSuppliedImageCount(activityId: string, enabled: boolean) {
   const [count, setCount] = useState<number | null>(null)
   useEffect(() => {
+    if (!enabled) return
     let cancelled = false
     listSuppliedImagesAction(activityId)
       .then((result) => {
@@ -77,7 +80,7 @@ function useSuppliedImageCount(activityId: string) {
     return () => {
       cancelled = true
     }
-  }, [activityId])
+  }, [activityId, enabled])
   return count
 }
 
@@ -87,16 +90,20 @@ function slotSummary(setup: AssessmentPaperSetup | null): string | null {
   return slots.map((slot) => `${slot.label} (${slot.kind}${slot.required ? "" : ", optional"})`).join(", ")
 }
 
+/** A practical assessment's (PowerPoint or database) short view. */
 export function PowerPointAssessmentShortView({ activity }: { activity: LessonActivity }) {
+  const config = practicalTypeConfig(activity.type)
   const { setup, loaded } = useAssessmentPaperSetup(activity.activity_id)
-  const images = useSuppliedImageCount(activity.activity_id)
+  const images = useSuppliedImageCount(activity.activity_id, config.hasSuppliedImages)
+  const body = (activity.body_data ?? {}) as Record<string, unknown>
+  const startingDatabase = typeof body.startingDatabaseFile === "string" ? body.startingDatabaseFile : null
   const questionCount = setup?.questions.length ?? null
   const marks = setup?.maxMarks ?? (questionCount === 0 ? 0 : activity.max_marks ?? null)
   const slots = slotSummary(setup)
 
   return (
     <div className="space-y-1 text-sm text-muted-foreground">
-      <p className="text-xs font-semibold uppercase tracking-wide text-primary">PowerPoint assessment</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-primary">{config.label}</p>
       <p>
         {!loaded
           ? "Loading questions…"
@@ -105,7 +112,12 @@ export function PowerPointAssessmentShortView({ activity }: { activity: LessonAc
             : questionCount === 0
               ? "No questions yet."
               : `${plural(questionCount, "question")} · ${plural(marks ?? 0, "mark")}`}
-        {images !== null ? ` · ${plural(images, "supplied image")}` : null}
+        {config.hasSuppliedImages && images !== null ? ` · ${plural(images, "supplied image")}` : null}
+        {config.hasStartingDatabase
+          ? startingDatabase
+            ? ` · starting database ${startingDatabase}`
+            : " · no starting database"
+          : null}
       </p>
       {slots ? <p className="text-xs">Pupils hand in: {slots}</p> : null}
       {setup?.powerpoint?.bodyProblem ? (

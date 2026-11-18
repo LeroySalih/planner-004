@@ -19,12 +19,16 @@ import {
   type QuestionCriterionMarkInput,
   type SubmissionQuestionAnswer,
 } from "@/lib/assessment-paper/store"
+import { describeDatabaseSections, filterDatabaseSections } from "@/lib/accdb/describe"
+import { formatDatabaseSection } from "@/lib/accdb/section-selectors"
+import { DATABASE_MARK_SYSTEM } from "@/lib/database-assessment/marking-text"
 import { readDocxText } from "@/lib/docx/evidence"
 import { UnreadablePdfError, pdfText } from "@/lib/pdf/poppler"
 import { OfficeFileError } from "@/lib/pptx/errors"
 import { describePresentationSections, filterPresentationSections } from "@/lib/pptx/describe"
 import type { PresentationReport } from "@/lib/pptx/inspect"
 import {
+  databaseSections,
   evidenceHeading,
   formatPresentationSection,
   presentationSections,
@@ -36,21 +40,27 @@ import {
   SLIDE_RENDER_MAX_SLIDES,
   readActivityFile,
   slidesUnavailableNote,
+  type DatabaseEvidenceReport,
   type EvidenceDocReport,
   type PdfReport,
   type SlideImagesRead,
 } from "@/lib/powerpoint-assessment/reading"
+import { practicalTypeConfig, type PracticalAssessmentType } from "@/lib/practical-assessment/types"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
-import { PowerPointAssessmentActivityBodySchema, type AiProvider, type PowerPointUploadSlot } from "@/types"
+import type { AiProvider, PracticalUploadSlot } from "@/types"
 
-// One marking call of a PowerPoint assessment: one question (part) of one
-// pupil's hand-in, every criterion the question tests at once, after the read.
+// One marking call of a practical assessment (PowerPoint or database): one
+// question (part) of one pupil's hand-in, every criterion the question tests
+// at once, after the read. The system prompt and the words naming evidence
+// are per type (MARK_TEXT); everything else branches on the source.
 //
 // The model sees the question, its mark scheme, its criteria with each one's
 // allocation (as places to file the marks, never as standards) and the
 // evidence its own sources name, nothing else of the pupil's work:
 //
 //   presentation      the presentation report's sections the source selects,
+//                     regenerated from the stored report (text);
+//   database          the database report's sections the source selects,
 //                     regenerated from the stored report (text);
 //   slide_images      the slides LibreOffice drew at the read (pictures), or a
 //                     note that they are not available;
@@ -155,6 +165,26 @@ Write every comment to the pupil as "you", in plain English a secondary pupil un
 
 The evidence_note is for the teacher only and is never shown to the pupil. Write it first, before the marks: for each marking point, its conditions and do-not-accept clauses, the facts in the evidence that meet or fail each one (slide numbers, report facts, file pages, EVIDENCE headings), and whether the point is earned; then anything you could not see or check. The marks must follow the note: a point the note shows failing one condition gets 0. Plain text only, with no HTML or markup.`
 
+/** What naming the evidence in a PowerPoint prompt says. */
+const POWERPOINT_EVIDENCE_NAMES = "slide number, file or EVIDENCE heading"
+
+/**
+ * Per practical type: the system prompt, what a comment names as its evidence,
+ * and how the teacher can narrow a question's evidence when it is over a cap.
+ */
+export const MARK_TEXT: Readonly<Record<PracticalAssessmentType, { system: string; evidenceNames: string; narrowHint: string }>> = {
+  "powerpoint-assessment": {
+    system: POWERPOINT_MARK_SYSTEM,
+    evidenceNames: POWERPOINT_EVIDENCE_NAMES,
+    narrowHint: "name only the slides it needs",
+  },
+  "database-assessment": {
+    system: DATABASE_MARK_SYSTEM,
+    evidenceNames: "EVIDENCE heading, table, query, form or report, or file",
+    narrowHint: "name only the parts of the database report or the EVIDENCE headings it needs",
+  },
+}
+
 /** One block of evidence text in the prompt. */
 type TextBlock = { key: string; text: string }
 
@@ -246,7 +276,7 @@ async function assembleEvidence(input: {
   answer: SubmissionQuestionAnswer
   activityId: string
   lessonId: string
-  slots: PowerPointUploadSlot[]
+  slots: PracticalUploadSlot[]
   files: PracticalFileRow[]
   evidence: StoredEvidence[]
 }): Promise<{ blocks: TextBlock[]; attachments: PendingAttachment[] }> {
@@ -368,6 +398,23 @@ async function assembleEvidence(input: {
       return
     }
 
+    if (source.source === "database") {
+      const report = evidenceOf(file) as DatabaseEvidenceReport
+      const formatted = databaseSections(source).map(formatDatabaseSection)
+      // A named table or query the database does not have comes back as a
+      // block of its own saying so, with the names it does have.
+      const sections = filterDatabaseSections(describeDatabaseSections(report), formatted)
+      const what = source.sections ? formatted.join(", ") : "every part but records"
+      blocks.push({
+        key: `database:${source.slot}:${formatted.join(",")}`,
+        text: [
+          `DATABASE REPORT, ${slotLabel} (${markerFileName(file)}), ${what}:`,
+          sections.length > 0 ? sections.map((s) => s.text).join("\n\n") : "(none of these parts is in the database)",
+        ].join("\n"),
+      })
+      return
+    }
+
     // evidence_section
     const report = evidenceOf(file) as EvidenceDocReport
     const heading = evidenceHeading(source, question.label)
@@ -407,7 +454,7 @@ async function assembleEvidence(input: {
 }
 
 /** Throws, permanently, when a question's evidence is over a cap. */
-function assertWithinCaps(label: string, attachments: PendingAttachment[], promptChars: number) {
+function assertWithinCaps(label: string, attachments: PendingAttachment[], promptChars: number, narrowHint: string) {
   const problems: string[] = []
   const images = attachments.filter((a) => a.kind === "image")
   const pdfs = attachments.filter((a) => a.kind === "pdf")
@@ -426,7 +473,7 @@ function assertWithinCaps(label: string, attachments: PendingAttachment[], promp
   if (promptChars > MARK_MAX_TEXT_CHARS) problems.push(`${promptChars} characters of text (at most ${MARK_MAX_TEXT_CHARS})`)
   if (problems.length > 0) {
     throw new PermanentAssessmentMarkingError(
-      `Question ${label}: its evidence is too large to mark in one call: ${problems.join("; ")}. Narrow its evidence sources (for example name only the slides it needs), or mark it yourself.`,
+      `Question ${label}: its evidence is too large to mark in one call: ${problems.join("; ")}. Narrow its evidence sources (for example ${narrowHint}), or mark it yourself.`,
     )
   }
 }
@@ -441,6 +488,8 @@ export function buildPowerPointMarkPrompt(input: {
   instructions: string | null
   blocks: TextBlock[]
   attachmentLabels: string[]
+  /** What a comment names as its evidence; PowerPoint's when absent. */
+  evidenceNames?: string
 }): string {
   const { question } = input
   const criteria = input.criteria
@@ -470,7 +519,7 @@ Then decide each point from that list alone: it is earned only when every condit
 Then record those marks: put each earned point under the entry whose topic it fits best, never more than an entry holds and never one point under two entries. If a point fits no topic, put it under any entry with room. The entries' marks must add up to the marks the mark scheme gives.
 
 Reply with exactly one entry per success_criteria_id above, using it exactly as written.
-- why_not_awarded: which mark scheme points the pupil missed for the marks not given here, naming the evidence (slide number, file or EVIDENCE heading). Empty when the entry is full.
+- why_not_awarded: which mark scheme points the pupil missed for the marks not given here, naming the evidence (${input.evidenceNames ?? POWERPOINT_EVIDENCE_NAMES}). Empty when the entry is full.
 - how_to_improve: what to do next time to earn those mark scheme points. Empty when the entry is full.
 Base both comments on the mark scheme and the evidence only; never mention or quote the success criteria.
 - evidence_note (teacher only, written first): point by point, the conditions and the deciding facts in the evidence, whether each point is earned, and anything you could not see or check.`
@@ -503,16 +552,24 @@ export async function markPowerPointQuestion(
     throw new PermanentAssessmentMarkingError(`Question ${question.label} has not been read on this hand-in; send the work again.`)
   }
 
-  const { rows: activityRows } = await query<{ lesson_id: string; body_data: unknown }>(
-    "select lesson_id, body_data from activities where activity_id = $1",
+  const { rows: activityRows } = await query<{ lesson_id: string; type: string | null; body_data: unknown }>(
+    "select lesson_id, type, body_data from activities where activity_id = $1",
     [input.activityId],
   )
   const activity = activityRows[0]
   if (!activity) throw new PermanentAssessmentMarkingError(`Activity ${input.activityId} not found.`)
-  const body = PowerPointAssessmentActivityBodySchema.safeParse(activity.body_data ?? {})
-  if (!body.success) {
-    throw new PermanentAssessmentMarkingError("This PowerPoint assessment's upload slots are not set up; set them up, then send the work again.")
+  let config: ReturnType<typeof practicalTypeConfig>
+  try {
+    config = practicalTypeConfig(activity.type)
+  } catch {
+    throw new PermanentAssessmentMarkingError(`Activity ${input.activityId} is not a practical assessment.`)
   }
+  const text = MARK_TEXT[config.type]
+  const parsed = config.bodySchema.safeParse(activity.body_data ?? {})
+  if (!parsed.success) {
+    throw new PermanentAssessmentMarkingError(`This ${config.labelLower}'s upload slots are not set up; set them up, then send the work again.`)
+  }
+  const body = parsed.data as { uploadSlots: PracticalUploadSlot[]; instructions?: string | null }
 
   const files = await listPracticalFiles(input.submissionId)
   const { rows: evidence } = await query<StoredEvidence>(
@@ -537,7 +594,7 @@ export async function markPowerPointQuestion(
     answer,
     activityId: input.activityId,
     lessonId: activity.lesson_id,
-    slots: body.data.uploadSlots,
+    slots: body.uploadSlots,
     files,
     evidence,
   })
@@ -545,12 +602,13 @@ export async function markPowerPointQuestion(
   const prompt = buildPowerPointMarkPrompt({
     question,
     criteria,
-    instructions: body.data.instructions ?? null,
+    instructions: body.instructions ?? null,
     blocks,
     attachmentLabels: attachments.map((a) => a.label),
+    evidenceNames: text.evidenceNames,
   })
   const promptChars = prompt.length + attachments.reduce((sum, a) => sum + a.label.length, 0)
-  assertWithinCaps(question.label, attachments, promptChars)
+  assertWithinCaps(question.label, attachments, promptChars, text.narrowHint)
 
   const parts: ModelPart[] = [{ text: prompt }]
   for (const attachment of attachments) {
@@ -563,7 +621,7 @@ export async function markPowerPointQuestion(
   const reply = await call({
     provider: input.provider,
     model,
-    systemText: POWERPOINT_MARK_SYSTEM,
+    systemText: text.system,
     parts,
     responseSchema: POWERPOINT_MARK_RESPONSE_SCHEMA,
     timeoutMs: 180_000,
@@ -594,7 +652,7 @@ export async function markPowerPointQuestion(
       request: {
         provider: input.provider,
         model,
-        system: POWERPOINT_MARK_SYSTEM,
+        system: text.system,
         prompt,
         attachments: attachments.map((a) => ({ label: a.label, fileName: a.fileName, mimeType: a.mimeType, bytes: a.bytes })),
         textSections: blocks.map((b) => ({ key: b.key, chars: b.text.length })),

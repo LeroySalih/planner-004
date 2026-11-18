@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-# Creates PowerPoint assessment activities from spec files, running
-# scripts/setup-powerpoint-assessment.ts in a throwaway container beside the app,
-# and optionally copies pupils' old Upload File work into them.
+# Creates practical assessment activities (PowerPoint or database) from spec
+# files, running scripts/setup-powerpoint-assessment.ts in a throwaway container
+# beside the app, and optionally copies pupils' old Upload File work into
+# PowerPoint assessments.
 #
 #   bash scripts/setup-powerpoint-assessment.sh scripts/powerpoint-assessments/*.json            dry run
 #   bash scripts/setup-powerpoint-assessment.sh scripts/powerpoint-assessments/*.json --apply    create
 #   bash scripts/setup-powerpoint-assessment.sh scripts/powerpoint-assessments/*.json --apply --copy --hand-in
+#   bash scripts/setup-powerpoint-assessment.sh scripts/database-assessments/*.json --apply       database assessments
+#
+# A spec's "type" is "powerpoint-assessment" (the default) or "database-assessment".
 #
 # Options:
 #   --apply                 write (default: dry run, nothing changes)
 #   --copy                  then run scripts/copy-uploads-to-powerpoint-assessment.sh for every
-#                           spec with a copy_mapping (same --apply)
+#                           PowerPoint spec with a copy_mapping (same --apply); database specs
+#                           are skipped with a note
 #   --hand-in               with --copy: hand in every pupil whose required slots are filled.
 #                           This queues REAL AI marking; you are asked to type "yes" first.
 #   --yes                   skip that prompt
@@ -45,7 +50,10 @@ done
 [ ${#SPECS[@]} -gt 0 ] || fail "usage: $0 <spec.json>... [--apply] [--copy [--hand-in] [--yes]] [--files-root <dir>] [--fallback-root <dir>]"
 [ -n "$HAND_IN" ] && [ -z "$COPY" ] && fail "--hand-in needs --copy"
 for spec in "${SPECS[@]}"; do
-  case "$spec" in scripts/powerpoint-assessments/*.json) ;; *) fail "specs must be in scripts/powerpoint-assessments/ ($spec)" ;; esac
+  case "$spec" in
+    scripts/powerpoint-assessments/*.json|scripts/database-assessments/*.json) ;;
+    *) fail "specs must be in scripts/powerpoint-assessments/ or scripts/database-assessments/ ($spec)" ;;
+  esac
   [ -f "$spec" ] || fail "no spec at $spec"
 done
 [ -f .env ] || fail "no .env in $PROJECT_DIR"
@@ -86,7 +94,7 @@ for spec in "${SPECS[@]}"; do
     -e APP_UID="$APP_UID" -e APP_GID="$APP_GID" -e SPEC="$spec" -e OUT="/out/$name.json" -e ARGS="$APPLY" \
     dino-deps sh -c '
       set -e
-      apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq poppler-utils >/dev/null 2>&1 || true
+      apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq poppler-utils mdbtools >/dev/null 2>&1 || true
       export DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/dino?sslmode=disable"
       export NODE_PATH=/stub HOME=/tmp
       cd /app
@@ -103,6 +111,12 @@ done
 
 if [ -n "$COPY" ]; then
   for spec in "${SPECS[@]}"; do
+    spec_type="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("type") or "powerpoint-assessment")' "$spec")"
+    if [ "$spec_type" != "powerpoint-assessment" ]; then
+      echo
+      echo "== $(basename "$spec" .json): --copy is for PowerPoint assessments only; skipped"
+      continue
+    fi
     mapping="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("copy_mapping") or "")' "$spec")"
     [ -n "$mapping" ] || continue
     echo

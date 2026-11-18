@@ -10,10 +10,11 @@ import {
   storePracticalFile,
 } from "@/lib/powerpoint-assessment/files"
 
-// A pupil's file for one upload slot of a PowerPoint assessment (multipart:
-// activityId, slotKey, pupilId, file, groupAssignmentId?). The pupil
-// themselves, or a teacher for a pupil. A route rather than a server action
-// because a presentation can be larger than the server-action body limit.
+// A pupil's file for one upload slot of a practical assessment (PowerPoint or
+// database; multipart: activityId, slotKey, pupilId, file, groupAssignmentId?).
+// The pupil themselves, or a teacher for a pupil. A route rather than a server
+// action because a presentation or database can be larger than the
+// server-action body limit.
 // Storing does not hand in; marking starts on Hand in. After hand-in a pupil
 // cannot change a file; a teacher can, and it is sent again (storePracticalFile).
 

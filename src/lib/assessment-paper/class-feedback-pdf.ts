@@ -7,7 +7,7 @@ import type { DocumentProps } from "@react-pdf/renderer"
 import { format } from "date-fns"
 
 import { query } from "@/lib/db"
-import { isPowerPointAssessmentType } from "@/dino.config"
+import { isPracticalAssessmentType } from "@/dino.config"
 import { readAssessmentFeedbackPdfData, type FeedbackPdfData } from "@/lib/assessment-paper/feedback-pdf"
 import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
 import { AssessmentPaperClassFeedbackDocument } from "@/components/pdf/assessment-paper-feedback-document"
@@ -20,7 +20,7 @@ import { AssessmentPaperClassFeedbackDocument } from "@/components/pdf/assessmen
 // apply, and it shows the AI's marks against the teacher's
 // (summariseTeacherChanges): never on a pupil's own PDF.
 //
-// On a PowerPoint assessment a pupil has "not sat" it (Not handed in) until
+// On a practical assessment (PowerPoint or database) a pupil has "not sat" it (Not handed in) until
 // their latest submission is handed in, and is "held" when marking stopped
 // with a reason (mark_status null, mark_error set): a file missing or
 // unreadable. Only handed-in pupils get feedback pages.
@@ -39,7 +39,7 @@ export type ClassFeedbackRosterRow = {
 
 export type ClassFeedbackPdfData = {
   paperTitle: string
-  /** A PowerPoint assessment: statuses read as handed in, not sat. */
+  /** A practical assessment: statuses read as handed in, not sat. */
   powerPoint: boolean
   className: string
   unitTitle: string
@@ -102,7 +102,7 @@ export async function readClassFeedbackPdfData(activityId: string, groupId: stri
   )
   const activity = activityRows[0]
   if (!activity) throw new Error("Activity not found.")
-  const powerPoint = isPowerPointAssessmentType(activity.type)
+  const powerPoint = isPracticalAssessmentType(activity.type)
 
   const { rows } = await query<
     RosterRow & { pupil_id: string; first_name: string | null; last_name: string | null; marks: number | null }

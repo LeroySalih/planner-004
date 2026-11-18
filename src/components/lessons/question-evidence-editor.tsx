@@ -3,17 +3,24 @@
 import { Plus, Trash2 } from "lucide-react"
 
 import {
+  DATABASE_SECTION_KEYS,
+  DEFAULT_DATABASE_SECTIONS,
+  databaseNameKey,
+  parseDatabaseSection,
+  type DatabaseSectionKey,
+} from "@/lib/accdb/section-selectors"
+import {
   DEFAULT_PRESENTATION_SECTIONS,
   EVIDENCE_WANTS,
   PRESENTATION_SECTION_KEYS,
-  QUESTION_EVIDENCE_SOURCES,
   SOURCE_SLOT_KIND,
   parsePresentationSection,
   type PresentationSectionKey,
   type QuestionEvidence,
   type QuestionEvidenceSource,
 } from "@/lib/powerpoint-assessment/evidence-spec"
-import type { PowerPointUploadSlot } from "@/types"
+import { practicalTypeConfig, type PracticalAssessmentType } from "@/lib/practical-assessment/types"
+import type { PracticalUploadSlot } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -21,8 +28,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 
-// One PowerPoint assessment question's evidence sources: where the marker's
-// evidence for it comes from. The draft keeps every field of every source
+// One practical assessment question's evidence sources (PowerPoint or
+// database): where the marker's evidence for it comes from. The sources
+// offered are the activity type's (practicalTypeConfig(type).sources). The draft keeps every field of every source
 // type so switching type does not lose what was typed; fromDraftSources
 // turns it into what is stored (src/lib/powerpoint-assessment/evidence-spec.ts),
 // which validateQuestionEvidence then checks.
@@ -35,6 +43,12 @@ export interface DraftEvidenceSource {
   sections: PresentationSectionKey[]
   /** presentation: "3, 6" turns the Slides section into slides:3,6. */
   onlySlides: string
+  /** database: the fixed section keys ticked (records: every table's records). */
+  databaseSections: DatabaseSectionKey[]
+  /** database: "OWNERS, PETS" adds records:OWNERS and records:PETS. */
+  recordTables: string
+  /** database: "MICROCHIP REMINDER, …" adds query:MICROCHIP REMINDER, …. */
+  queryNames: string
   /** slide_images: the slides to picture; empty for every slide. */
   slides: string
   heading: string
@@ -49,6 +63,7 @@ export const SOURCE_LABELS: Record<QuestionEvidenceSource, string> = {
   file: "Whole PDF",
   evidence_section: "Evidence document section",
   reference_file: "Teacher's reference file",
+  database: "Database report",
 }
 
 const SOURCE_HINTS: Record<QuestionEvidenceSource, string> = {
@@ -57,6 +72,7 @@ const SOURCE_HINTS: Record<QuestionEvidenceSource, string> = {
   file: "The pupil's PDF printout, sent whole.",
   evidence_section: "What the pupil put under a heading in their evidence document.",
   reference_file: "The text of one of this activity's files (your material, not the pupil's work).",
+  database: "What the pupil's database says: tables, records, saved sort, lookups, saved queries, forms and reports, and what changed from the starting database.",
 }
 
 const SECTION_LABELS: Record<PresentationSectionKey, string> = {
@@ -68,6 +84,23 @@ const SECTION_LABELS: Record<PresentationSectionKey, string> = {
   notes: "Notes and handout masters",
   "supplied-images": "Supplied images",
   media: "Media",
+  warnings: "Warnings",
+}
+
+/** The database sections a checkbox stands for; query needs a name, so it is a text box. */
+const DATABASE_CHECKBOX_KEYS = DATABASE_SECTION_KEYS.filter((key) => key !== "query")
+
+const DATABASE_SECTION_LABELS: Record<DatabaseSectionKey, string> = {
+  tables: "Tables",
+  fields: "Fields",
+  relationships: "Relationships",
+  lookups: "Lookups",
+  "table-sort": "Saved table sort",
+  records: "Records (every table)",
+  changes: "Changes from the starting database",
+  queries: "Saved queries",
+  query: "One saved query",
+  objects: "Forms and reports",
   warnings: "Warnings",
 }
 
@@ -83,14 +116,15 @@ function newId() {
     : `e-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function compatibleSlots(source: QuestionEvidenceSource, slots: PowerPointUploadSlot[]) {
+/** The slots a source can read: those of its kind (none for a reference file). */
+export function compatibleSlots<S extends PracticalUploadSlot>(source: QuestionEvidenceSource, slots: S[]): S[] {
   if (source === "reference_file") return []
   return slots.filter((slot) => slot.kind === SOURCE_SLOT_KIND[source])
 }
 
 export function newDraftSource(
   source: QuestionEvidenceSource,
-  slots: PowerPointUploadSlot[],
+  slots: PracticalUploadSlot[],
   referenceFiles: string[] = [],
 ): DraftEvidenceSource {
   return {
@@ -99,6 +133,9 @@ export function newDraftSource(
     slot: compatibleSlots(source, slots)[0]?.key ?? "",
     sections: [...DEFAULT_PRESENTATION_SECTIONS],
     onlySlides: "",
+    databaseSections: [...DEFAULT_DATABASE_SECTIONS],
+    recordTables: "",
+    queryNames: "",
     slides: "",
     heading: "",
     want: "screenshots",
@@ -132,6 +169,24 @@ export function toDraftSources(evidence: QuestionEvidence[]): DraftEvidenceSourc
         draft.onlySlides = everySlide ? "" : onlySlides.sort((a, b) => a - b).join(", ")
       }
       draft.required = stored.required === true
+    } else if (stored.source === "database") {
+      if (stored.sections) {
+        const sections: DatabaseSectionKey[] = []
+        const tables: string[] = []
+        const queries: string[] = []
+        for (const selector of stored.sections) {
+          const parsed = parseDatabaseSection(selector)
+          if (!parsed) continue
+          if (parsed.name === null) {
+            if (!sections.includes(parsed.key)) sections.push(parsed.key)
+          } else if (parsed.key === "records") tables.push(parsed.name)
+          else queries.push(parsed.name)
+        }
+        draft.databaseSections = sections
+        draft.recordTables = tables.join(", ")
+        draft.queryNames = queries.join(", ")
+      }
+      draft.required = stored.required === true
     } else if (stored.source === "slide_images") {
       draft.slides = stored.slides?.join(", ") ?? ""
     } else if (stored.source === "file") {
@@ -151,6 +206,19 @@ function slideList(text: string): Array<number | string> {
   return tokens.every((token) => /^\d+$/.test(token)) ? tokens.map(Number) : tokens
 }
 
+/** "OWNERS, pets, OWNERS" as names, the first of any repeated (Access names ignore case). */
+function nameList(text: string): string[] {
+  const seen = new Set<string>()
+  return text
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => {
+      if (!name || seen.has(databaseNameKey(name))) return false
+      seen.add(databaseNameKey(name))
+      return true
+    })
+}
+
 /** The sources as they are stored. Defaults are left out, as the store does. */
 export function fromDraftSources(drafts: DraftEvidenceSource[], questionLabel: string): unknown[] {
   return drafts.map((draft) => {
@@ -167,6 +235,27 @@ export function fromDraftSources(drafts: DraftEvidenceSource[], questionLabel: s
           DEFAULT_PRESENTATION_SECTIONS.every((key) => sections.includes(key))
         return {
           source: "presentation",
+          slot: draft.slot,
+          ...(isDefault ? {} : { sections }),
+          ...(draft.required ? { required: true } : {}),
+        }
+      }
+      case "database": {
+        const tables = nameList(draft.recordTables)
+        const queries = nameList(draft.queryNames)
+        const fixed: DatabaseSectionKey[] = DATABASE_CHECKBOX_KEYS.filter((key) => draft.databaseSections.includes(key))
+        const isDefault =
+          tables.length === 0 &&
+          queries.length === 0 &&
+          fixed.length === DEFAULT_DATABASE_SECTIONS.length &&
+          DEFAULT_DATABASE_SECTIONS.every((key) => fixed.includes(key))
+        const sections = [
+          ...fixed,
+          ...tables.map((name) => `records:${name}`),
+          ...queries.map((name) => `query:${name}`),
+        ]
+        return {
+          source: "database",
           slot: draft.slot,
           ...(isDefault ? {} : { sections }),
           ...(draft.required ? { required: true } : {}),
@@ -197,8 +286,10 @@ export function fromDraftSources(drafts: DraftEvidenceSource[], questionLabel: s
 interface QuestionEvidenceEditorProps {
   questionKey: string
   questionLabel: string
+  /** The activity's practical type: which sources a question may use. */
+  type: PracticalAssessmentType
   sources: DraftEvidenceSource[]
-  slots: PowerPointUploadSlot[]
+  slots: PracticalUploadSlot[]
   /** The activity's own files, for reference_file. */
   referenceFiles: string[]
   disabled: boolean
@@ -208,16 +299,18 @@ interface QuestionEvidenceEditorProps {
 export function QuestionEvidenceEditor({
   questionKey,
   questionLabel,
+  type,
   sources,
   slots,
   referenceFiles,
   disabled,
   onChange,
 }: QuestionEvidenceEditorProps) {
+  const sourceOptions = practicalTypeConfig(type).sources
   const update = (id: string, patch: Partial<DraftEvidenceSource>) =>
     onChange(sources.map((source) => (source.id === id ? { ...source, ...patch } : source)))
   const remove = (id: string) => onChange(sources.filter((source) => source.id !== id))
-  const add = () => onChange([...sources, newDraftSource("presentation", slots, referenceFiles)])
+  const add = () => onChange([...sources, newDraftSource(sourceOptions[0], slots, referenceFiles)])
   const label = questionLabel.trim() || "this question"
 
   return (
@@ -260,11 +353,14 @@ export function QuestionEvidenceEditor({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {QUESTION_EVIDENCE_SOURCES.map((option) => (
+                      {sourceOptions.map((option) => (
                         <SelectItem key={option} value={option}>
                           {SOURCE_LABELS[option]}
                         </SelectItem>
                       ))}
+                      {!sourceOptions.includes(source.source) ? (
+                        <SelectItem value={source.source}>{SOURCE_LABELS[source.source]} (not for this activity)</SelectItem>
+                      ) : null}
                     </SelectContent>
                   </Select>
                 </div>
@@ -369,6 +465,57 @@ export function QuestionEvidenceEditor({
                 </div>
               ) : null}
 
+              {source.source === "database" ? (
+                <div className="space-y-2">
+                  <div className="grid gap-1 sm:grid-cols-2">
+                    {DATABASE_CHECKBOX_KEYS.map((key) => (
+                      <label key={key} className="flex items-center gap-2 text-xs text-foreground">
+                        <Checkbox
+                          checked={source.databaseSections.includes(key)}
+                          onCheckedChange={(checked) =>
+                            update(source.id, {
+                              databaseSections: checked
+                                ? [...source.databaseSections, key]
+                                : source.databaseSections.filter((section) => section !== key),
+                            })
+                          }
+                          disabled={disabled}
+                        />
+                        {DATABASE_SECTION_LABELS[key]}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground" htmlFor={`${id}-records`}>
+                        Records of tables (comma-separated)
+                      </Label>
+                      <Input
+                        id={`${id}-records`}
+                        className="h-8"
+                        placeholder="e.g. OWNERS, PETS"
+                        value={source.recordTables}
+                        onChange={(event) => update(source.id, { recordTables: event.target.value })}
+                        disabled={disabled}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground" htmlFor={`${id}-queries`}>
+                        Saved queries by name (comma-separated)
+                      </Label>
+                      <Input
+                        id={`${id}-queries`}
+                        className="h-8"
+                        placeholder="e.g. MICROCHIP REMINDER"
+                        value={source.queryNames}
+                        onChange={(event) => update(source.id, { queryNames: event.target.value })}
+                        disabled={disabled}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               {source.source === "slide_images" ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <Label className="text-xs text-muted-foreground" htmlFor={`${id}-slides`}>
@@ -425,7 +572,10 @@ export function QuestionEvidenceEditor({
                 </div>
               ) : null}
 
-              {source.source === "presentation" || source.source === "file" || source.source === "evidence_section" ? (
+              {source.source === "presentation" ||
+              source.source === "database" ||
+              source.source === "file" ||
+              source.source === "evidence_section" ? (
                 <label className="flex items-center gap-2 text-xs text-foreground">
                   <Switch
                     checked={source.required}

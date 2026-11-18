@@ -104,7 +104,7 @@ async function setUp() {
 }
 
 async function tearDown() {
-  for (const [bucket, prefix] of [[ASSESSMENT_SCRIPTS_BUCKET, PPT], [LESSONS_BUCKET, `lessons/${LESSON}/`]] as const) {
+  for (const [bucket, prefix] of [[ASSESSMENT_SCRIPTS_BUCKET, PPT], [LESSONS_BUCKET, `${LESSON}/`]] as const) {
     const { rows } = await query<{ scope_path: string; file_name: string }>(
       'select scope_path, file_name from stored_files where bucket = $1 and scope_path like $2',
       [bucket, `${prefix}%`],
@@ -114,7 +114,7 @@ async function tearDown() {
     await query('delete from stored_files where bucket = $1 and scope_path like $2', [bucket, `${prefix}%`])
   }
   await rm(path.join(process.cwd(), 'files', ASSESSMENT_SCRIPTS_BUCKET, PPT), { recursive: true, force: true })
-  await rm(path.join(process.cwd(), 'files', LESSONS_BUCKET, 'lessons', LESSON), { recursive: true, force: true })
+  await rm(path.join(process.cwd(), 'files', LESSONS_BUCKET, LESSON), { recursive: true, force: true })
   await query("delete from external_jobs where payload->>'submissionId' in (select submission_id from submissions where activity_id = $1)", [PPT])
   await query('delete from submissions where activity_id = $1', [PPT])
   await query('delete from pupil_activity_feedback where activity_id = $1', [PPT]).catch(() => {})
@@ -313,7 +313,7 @@ async function main() {
           + (select count(*) from profiles where user_id = any($4::text[]))
           + (select count(*) from activities where activity_id = $5)
           + (select count(*) from groups where group_id = $6) as left`,
-    [`${PPT}%`, `lessons/${LESSON}/%`, UNIT, [PUPIL, OUTSIDER, TEACHER], PPT, GROUP],
+    [`${PPT}%`, `${LESSON}/%`, UNIT, [PUPIL, OUTSIDER, TEACHER], PPT, GROUP],
   )
   check('cleaned up', Number(left) === 0, String(left))
 

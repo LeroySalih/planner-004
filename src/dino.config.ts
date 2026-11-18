@@ -18,6 +18,7 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "sequence",
   "assessment-paper",
   "powerpoint-assessment",
+  "database-assessment",
 ]);
 
 // Activity types marked question by question, each question splitting its
@@ -26,14 +27,21 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
 // src/lib/assessment-paper/store.ts, so the per-criterion machinery
 // (refresh_criterion_marks, the activity_success_criteria trigger, teacher
 // criterion marks, whole-activity overrides) must leave them alone.
-// Mirrored in SQL by is_question_marked_activity_type (migrations 132, 143).
+// Mirrored in SQL by is_question_marked_activity_type (migrations 132, 143, 146).
 //
 // The question machinery is shared, but each type hands its work in its own
 // way: an assessment-paper as a scanned script (front sheet, markable pages),
-// a powerpoint-assessment as named files (presentation, PDFs, evidence
-// document). Anything that touches scripts, front sheets or pages must ask
-// isAssessmentPaperType, not isQuestionMarkedActivityType.
-export const QUESTION_MARKED_ACTIVITY_TYPES = Object.freeze(["assessment-paper", "powerpoint-assessment"]);
+// a practical assessment as named files, one per upload slot (a
+// powerpoint-assessment's presentation, PDFs and evidence document; a
+// database-assessment's Access database and evidence document). Anything
+// that touches scripts, front sheets or pages must ask isAssessmentPaperType,
+// and anything that touches slots or handed-in files isPracticalAssessmentType,
+// not isQuestionMarkedActivityType.
+export const QUESTION_MARKED_ACTIVITY_TYPES = Object.freeze([
+  "assessment-paper",
+  "powerpoint-assessment",
+  "database-assessment",
+]);
 
 export function isQuestionMarkedActivityType(type: string | null | undefined): boolean {
   return QUESTION_MARKED_ACTIVITY_TYPES.includes(normalizeActivityType(type));
@@ -47,6 +55,23 @@ export function isAssessmentPaperType(type: string | null | undefined): boolean 
 /** A PowerPoint assessment: pupils hand in named files, read without a model, then marked per question. */
 export function isPowerPointAssessmentType(type: string | null | undefined): boolean {
   return normalizeActivityType(type) === "powerpoint-assessment";
+}
+
+/** A database assessment: pupils hand in an Access .accdb and an evidence document, read without a model, then marked per question. */
+export function isDatabaseAssessmentType(type: string | null | undefined): boolean {
+  return normalizeActivityType(type) === "database-assessment";
+}
+
+// Practical assessments: question-marked types whose pupils hand in named
+// files, one per upload slot, with Hand in, a read without a model and one
+// mark per question. They share the files, slots, hand-in, reopen, read/mark
+// jobs, results and feedback machinery (src/lib/powerpoint-assessment/,
+// configured per type by src/lib/practical-assessment/types.ts).
+export const PRACTICAL_ASSESSMENT_TYPES = Object.freeze(["powerpoint-assessment", "database-assessment"]);
+
+/** A practical assessment of any kind: handed in as files per upload slot, not as a script. */
+export function isPracticalAssessmentType(type: string | null | undefined): boolean {
+  return PRACTICAL_ASSESSMENT_TYPES.includes(normalizeActivityType(type));
 }
 
 // Activity types scored deterministically in-app from a single right/wrong
@@ -122,12 +147,13 @@ export function isMothballedActivityType(type: string | null | undefined): boole
 // be marked but read back as unscored.
 // Used by /admin/ai-models to decide which types can be routed to a model.
 //
-// Two exceptions are not in that SQL branch, and need not be, because their
+// These exceptions are not in that SQL branch, and need not be, because their
 // score is written to `score` as well as `ai_model_score`:
 // - assessment-paper: recomputeAssessmentSubmission writes both.
-// - powerpoint-assessment: likewise. It is listed so /admin/ai-models can route
-//   its per-question mark (migration 143); its files are read in-app, with no
-//   model, so only the mark uses the route.
+// - powerpoint-assessment and database-assessment: likewise. They are listed
+//   so /admin/ai-models can route their per-question mark (migrations 143,
+//   146); their files are read in-app, with no model, so only the mark uses
+//   the route.
 // - upload-file: per-criterion marking writes both (aggregate-sc-marks.ts).
 //   It is AI-marked only when the activity's "Mark with AI" switch is on
 //   (body_data.aiMarking), so anything that acts on an activity rather than
@@ -140,6 +166,7 @@ export const AI_MARKED_ACTIVITY_TYPES = Object.freeze([
   "upload-spreadsheet",
   "assessment-paper",
   "powerpoint-assessment",
+  "database-assessment",
   "upload-file",
 ]);
 

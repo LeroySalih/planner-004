@@ -826,19 +826,84 @@ export type AssessmentPaperActivityBody = z.infer<
 export const POWERPOINT_UPLOAD_SLOT_KINDS = ["pptx", "pdf", "docx"] as const;
 export type PowerPointUploadSlotKind = (typeof POWERPOINT_UPLOAD_SLOT_KINDS)[number];
 
-export const PowerPointUploadSlotSchema = z
-    .object({
-        key: z
-            .string()
-            .regex(/^[a-z0-9-]+$/, "a slot key uses only lower-case letters, digits and hyphens"),
-        label: z.string().trim().min(1, "every upload slot needs a label"),
-        kind: z.enum(POWERPOINT_UPLOAD_SLOT_KINDS),
-        required: z.boolean(),
-        hint: z.string().optional(),
-    })
-    .strict();
+// Database assessment — a practical assessment like the PowerPoint one, but
+// the main file is a Microsoft Access database ('accdb', required), read by
+// src/lib/accdb. Its evidence document ('docx') and any printouts ('pdf') are
+// read as for a PowerPoint assessment.
+export const DATABASE_UPLOAD_SLOT_KINDS = ["accdb", "pdf", "docx"] as const;
+export type DatabaseUploadSlotKind = (typeof DATABASE_UPLOAD_SLOT_KINDS)[number];
+
+/** Every slot kind any practical assessment type accepts. */
+export const PRACTICAL_UPLOAD_SLOT_KINDS = ["pptx", "pdf", "docx", "accdb"] as const;
+export type PracticalUploadSlotKind = (typeof PRACTICAL_UPLOAD_SLOT_KINDS)[number];
+
+/** An upload slot of a practical assessment whose kind is one of `kinds`. */
+export function uploadSlotSchema<const K extends readonly [string, ...string[]]>(kinds: K) {
+    return z
+        .object({
+            key: z
+                .string()
+                .regex(/^[a-z0-9-]+$/, "a slot key uses only lower-case letters, digits and hyphens"),
+            label: z.string().trim().min(1, "every upload slot needs a label"),
+            kind: z.enum(kinds),
+            required: z.boolean(),
+            hint: z.string().optional(),
+        })
+        .strict();
+}
+
+export const PowerPointUploadSlotSchema = uploadSlotSchema(POWERPOINT_UPLOAD_SLOT_KINDS);
 
 export type PowerPointUploadSlot = z.infer<typeof PowerPointUploadSlotSchema>;
+
+export const DatabaseUploadSlotSchema = uploadSlotSchema(DATABASE_UPLOAD_SLOT_KINDS);
+
+export type DatabaseUploadSlot = z.infer<typeof DatabaseUploadSlotSchema>;
+
+/** Any practical assessment's upload slot, for code that handles every type's slots. */
+export interface PracticalUploadSlot {
+    key: string;
+    label: string;
+    kind: PracticalUploadSlotKind;
+    required: boolean;
+    hint?: string;
+}
+
+/**
+ * Checks a practical assessment's slots: unique keys, and exactly one slot of
+ * `main.kind`, which is required. `main.activityName` and `main.slotName` word
+ * the messages, e.g. "a PowerPoint assessment" and "the presentation".
+ */
+function checkPracticalUploadSlots(
+    slots: readonly { key: string; kind: string; required: boolean }[],
+    ctx: z.RefinementCtx,
+    main: { kind: string; activityName: string; slotName: string },
+): void {
+    const seen = new Set<string>();
+    slots.forEach((slot, index) => {
+        if (seen.has(slot.key)) {
+            ctx.addIssue({
+                code: "custom",
+                path: [index, "key"],
+                message: `the slot key "${slot.key}" is used twice; slot keys must be unique`,
+            });
+        }
+        seen.add(slot.key);
+    });
+    const mains = slots.filter((slot) => slot.kind === main.kind);
+    if (mains.length !== 1) {
+        ctx.addIssue({
+            code: "custom",
+            message: `${main.activityName} needs exactly one ${main.kind} slot (${main.slotName}), not ${mains.length}`,
+        });
+    } else if (!mains[0].required) {
+        ctx.addIssue({
+            code: "custom",
+            path: [slots.indexOf(mains[0]), "required"],
+            message: `the ${main.kind} slot (${main.slotName}) must be required`,
+        });
+    }
+}
 
 export const PowerPointAssessmentActivityBodySchema = z
     .object({
@@ -847,32 +912,13 @@ export const PowerPointAssessmentActivityBodySchema = z
             .array(PowerPointUploadSlotSchema)
             .min(1, "a PowerPoint assessment needs at least one upload slot")
             .max(8, "a PowerPoint assessment has at most 8 upload slots")
-            .superRefine((slots, ctx) => {
-                const seen = new Set<string>();
-                slots.forEach((slot, index) => {
-                    if (seen.has(slot.key)) {
-                        ctx.addIssue({
-                            code: "custom",
-                            path: [index, "key"],
-                            message: `the slot key "${slot.key}" is used twice; slot keys must be unique`,
-                        });
-                    }
-                    seen.add(slot.key);
-                });
-                const presentations = slots.filter((slot) => slot.kind === "pptx");
-                if (presentations.length !== 1) {
-                    ctx.addIssue({
-                        code: "custom",
-                        message: `a PowerPoint assessment needs exactly one pptx slot (the presentation), not ${presentations.length}`,
-                    });
-                } else if (!presentations[0].required) {
-                    ctx.addIssue({
-                        code: "custom",
-                        path: [slots.indexOf(presentations[0]), "required"],
-                        message: "the pptx slot (the presentation) must be required",
-                    });
-                }
-            }),
+            .superRefine((slots, ctx) =>
+                checkPracticalUploadSlots(slots, ctx, {
+                    kind: "pptx",
+                    activityName: "a PowerPoint assessment",
+                    slotName: "the presentation",
+                }),
+            ),
         /** The name of an ordinary activity file: the blank evidence document, whose paragraphs are not the pupil's. */
         evidenceTemplateFile: z.string().min(1).optional(),
         questionPaperPath: z.string().min(1).optional(),
@@ -884,6 +930,43 @@ export const PowerPointAssessmentActivityBodySchema = z
 
 export type PowerPointAssessmentActivityBody = z.infer<
     typeof PowerPointAssessmentActivityBodySchema
+>;
+
+export const DatabaseAssessmentActivityBodySchema = z
+    .object({
+        instructions: z.string().optional(),
+        uploadSlots: z
+            .array(DatabaseUploadSlotSchema)
+            .min(1, "a database assessment needs at least one upload slot")
+            .max(8, "a database assessment has at most 8 upload slots")
+            .superRefine((slots, ctx) =>
+                checkPracticalUploadSlots(slots, ctx, {
+                    kind: "accdb",
+                    activityName: "a database assessment",
+                    slotName: "the database",
+                }),
+            ),
+        /** The name of an ordinary activity file: the blank evidence document, whose paragraphs are not the pupil's. */
+        evidenceTemplateFile: z.string().min(1).optional(),
+        /**
+         * The name of an ordinary activity file: the starting database pupils
+         * download, which a pupil's database is compared with.
+         */
+        startingDatabaseFile: z
+            .string()
+            .min(1)
+            .refine((name) => !/[\\/]/.test(name), "the starting database is an activity file name, with no folders")
+            .refine((name) => /\.accdb$/i.test(name), "the starting database must be an .accdb file")
+            .optional(),
+        questionPaperPath: z.string().min(1).optional(),
+        markSchemePath: z.string().min(1).optional(),
+        /** Whether the pupil's feedback includes each question's mark scheme. Absent means yes. */
+        showMarkSchemeToPupils: z.boolean().optional(),
+    })
+    .passthrough();
+
+export type DatabaseAssessmentActivityBody = z.infer<
+    typeof DatabaseAssessmentActivityBodySchema
 >;
 
 export const LongTextActivityBodySchema = z

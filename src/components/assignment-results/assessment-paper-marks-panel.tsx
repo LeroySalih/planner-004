@@ -10,6 +10,7 @@ import type { QuestionFlagHistoryEntry } from "@/lib/assessment-paper/question-f
 import type { AssessmentResultCriterion, AssessmentResultQuestion } from "@/lib/assessment-paper/results"
 import { assessmentFeedbackPdfUrl } from "@/lib/assessment-paper/urls"
 import {
+  EvidenceTexts,
   EvidenceThumbnails,
   formatUploadedAt,
   MarkerEvidenceNote,
@@ -35,7 +36,7 @@ interface AssessmentPaperMarksPanelProps {
   onAggregateChange?: (aggregate: { awarded: number; available: number } | null) => void
   /**
    * Reports, once loaded, whether there is work to mark: a script (assessment
-   * paper) or handed-in files (PowerPoint assessment).
+   * paper) or handed-in files (practical assessment).
    */
   onLoaded?: (state: { hasWork: boolean }) => void
   /** The grid's flag for this pupil; the panel reads its flags again when it changes. */
@@ -131,7 +132,7 @@ function flagHistoryLine(entry: QuestionFlagHistoryEntry) {
     : `${cleared}: mark unchanged (${mark(entry.awardedAtResolve)}).`
 }
 
-/** A PowerPoint task the reader answers with the pupil's typed text, which a teacher may correct. */
+/** A practical task the reader answers with the pupil's typed text, which a teacher may correct. */
 function readsTypedText(question: AssessmentResultQuestion) {
   return question.evidenceSources.some((source) => source.source === "evidence_section" && source.want === "text")
 }
@@ -139,9 +140,10 @@ function readsTypedText(question: AssessmentResultQuestion) {
 /**
  * An assessment paper for one pupil, as the results sidebar shows it: their
  * script (original and markable pages), and each question with what the
- * reader found (editable), its mark and its criteria. A PowerPoint
- * assessment shows the pupil's files instead, and per task the evidence the
- * marker was given, its pictures and the marker's note; only a task read
+ * reader found (editable), its mark and its criteria. A practical
+ * (PowerPoint or database) assessment shows the pupil's files instead, and
+ * per task the evidence the marker was given, its pictures, its database
+ * report and the marker's note; only a task read
  * from typed text has an editable answer. A teacher marks a
  * criterion within its question out of its allocation (on a one-criterion
  * question, the question's mark is that criterion's); the question and the
@@ -701,9 +703,10 @@ export function AssessmentPaperMarksPanel({
 }
 
 /**
- * One PowerPoint task's evidence: what the reader found (a digest, or the
+ * One practical task's evidence: what the reader found (a digest, or the
  * pupil's typed answer, which a teacher may correct when the task reads typed
- * text), the pictures the marker was given, and the marker's note.
+ * text), the pictures and database report the marker was given, and the
+ * marker's note.
  */
 function PowerPointAnswer({
   question,
@@ -752,6 +755,7 @@ function PowerPointAnswer({
         <p className="whitespace-pre-line text-xs text-foreground">{answer.transcription}</p>
       ) : null}
       <EvidenceThumbnails images={question.evidenceImages} />
+      <EvidenceTexts texts={question.evidenceTexts} />
       {question.markerEvidence ? <MarkerEvidenceNote text={question.markerEvidence} /> : null}
     </div>
   )

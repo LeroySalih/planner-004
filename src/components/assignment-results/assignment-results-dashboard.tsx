@@ -64,7 +64,7 @@ import { SketchRenderFeedbackView } from "@/components/assignment-results/sketch
 import { TeacherSubmissionDropzone } from "@/components/assignment-results/teacher-submission-dropzone"
 import {
   DETERMINISTIC_ACTIVITY_TYPES,
-  isPowerPointAssessmentType,
+  isPracticalAssessmentType,
   isQuestionMarkedActivityType,
   type MarkStatus,
 } from "@/dino.config"
@@ -539,16 +539,16 @@ function cellNeedsBulkAiMark(activity: AssignmentResultActivity, cell: Assignmen
   return activity.type === "upload-file" ? cell.status === "missing" : true
 }
 
-/** An assessment paper's or PowerPoint assessment's pupil response, when there is a submission. */
+/** An assessment paper's or practical assessment's pupil response, when there is a submission. */
 function questionMarkedWorkText(type: string): string {
-  return isPowerPointAssessmentType(type)
+  return isPracticalAssessmentType(type)
     ? "The pupil's files and marks are under Marking below."
     : "The pupil's script and marks are under Marking below."
 }
 
 /** The same when there is nothing to mark: no script, or no files handed in. */
 function noQuestionMarkedWorkText(type: string, consequence = ""): string {
-  return `${isPowerPointAssessmentType(type) ? "No files handed in" : "No script uploaded"}${consequence}.`
+  return `${isPracticalAssessmentType(type) ? "No files handed in" : "No script uploaded"}${consequence}.`
 }
 
 function isUploadListingActivityType(type: string): boolean {
@@ -1042,7 +1042,7 @@ export function AssignmentResultsDashboard({
   }, [selectedActivity, activities, groupedRows, matrixState.assignmentId, startAiMarkTransition])
 
   // Whether the selected pupil has work to mark on the selected assessment
-  // paper (a script) or PowerPoint assessment (handed-in files), as its marks
+  // paper (a script) or practical assessment (handed-in files), as its marks
   // panel last reported. Keyed so a stale answer for another cell is never used.
   const [paperWork, setPaperWork] = useState<{ key: string; hasWork: boolean } | null>(null)
   const selectionKey = selection ? `${selection.activity.activityId}:${selection.row.pupil.userId}` : null
@@ -1068,7 +1068,7 @@ export function AssignmentResultsDashboard({
       return
     }
 
-    // A paper is marked from its script, a PowerPoint assessment from the
+    // A paper is marked from its script, a practical assessment from the
     // files handed in; without them there is nothing to read.
     if (
       isQuestionMarkedActivityType(selection.activity.type) &&

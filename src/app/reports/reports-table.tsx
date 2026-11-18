@@ -101,7 +101,7 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
                         {pupil.groups.map((groupId) => (
                           <Link
                             key={`${pupil.pupilId}-${groupId}`}
-                            href={`/reports/groups/${groupId}`}
+                            href={`/groups/${encodeURIComponent(groupId)}`}
                             className="inline-flex items-center rounded-full border border-border px-2 py-1 text-xs text-foreground transition hover:bg-muted hover:text-foreground"
                           >
                             {groupId}

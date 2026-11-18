@@ -1,7 +1,7 @@
 import "server-only"
 
 import { query } from "@/lib/db"
-import { isAssessmentPaperType, isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
+import { isAssessmentPaperType, isPracticalAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
 import { pupilHasSatAssessment } from "@/lib/assessment-paper/files"
 import { pupilQuestionFlag, readQuestionFlags } from "@/lib/assessment-paper/question-flags"
 import {
@@ -259,11 +259,11 @@ export async function pupilQuestionFlagRefusal(
   if (!(await pupilFeedbackVisible(submission.activity_id, userId))) {
     return { error: "Your feedback has not been released yet." }
   }
-  // As the lesson page shows marks: a PowerPoint task never before hand-in or
+  // As the lesson page shows marks: a practical task never before hand-in or
   // while it is being marked (no feedback shows then), and only a question
   // with a mark.
   const powerPointState = powerPointMarkState(submission.submission_status === "submitted", submission.mark_status)
-  const shown = isPowerPointAssessmentType(submission.type)
+  const shown = isPracticalAssessmentType(submission.type)
     ? question.awarded !== null &&
       powerPointState !== "waiting" &&
       powerPointState !== "not-handed-in" &&

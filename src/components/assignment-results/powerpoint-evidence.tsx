@@ -10,13 +10,17 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { handInPowerPointAssessmentAction, reopenPowerPointAssessmentAction } from "@/lib/server-updates"
 import type {
   AssessmentEvidenceImage,
+  AssessmentEvidenceText,
+  DatabaseFileSummary,
   PowerPointResultFile,
   PowerPointResultFiles,
 } from "@/lib/assessment-paper/results"
 
-// The parts of a PowerPoint assessment's results panel a paper does not have:
-// the pupil's files in place of the script, the pictures the marker was given
-// for a task, and the marker's own note on the evidence. Teacher views only.
+// The parts of a practical assessment's results panel (PowerPoint or
+// database) a paper does not have: the pupil's files in place of the script,
+// what the reader found in a database, the pictures and database report the
+// marker was given for a task, and the marker's own note on the evidence.
+// Teacher views only.
 
 /** An upload time as dd-MM-yyyy HH:mm. */
 export function formatUploadedAt(iso: string) {
@@ -31,6 +35,7 @@ const ACCEPT: Record<PowerPointResultFile["kind"], string> = {
   pptx: ".pptx",
   pdf: ".pdf,application/pdf",
   docx: ".docx",
+  accdb: ".accdb",
 }
 
 /**
@@ -197,6 +202,7 @@ export function PowerPointFilesBlock({
             {slot.evidenceStatus === "error" ? (
               <p className="text-destructive">Could not be read: {slot.evidenceError ?? "the reader refused this file."}</p>
             ) : null}
+            {slot.database ? <DatabaseSummary summary={slot.database} /> : null}
           </li>
         ))}
       </ul>
@@ -246,6 +252,63 @@ export function PowerPointFilesBlock({
       ) : null}
       {markStatusLine ? <p className="mt-2 text-xs text-muted-foreground">{markStatusLine}</p> : null}
     </div>
+  )
+}
+
+function plural(n: number, one: string, many = `${one}s`) {
+  return `${n} ${n === 1 ? one : many}`
+}
+
+function namedCount(names: string[], one: string, many = `${one}s`) {
+  return names.length > 0 ? `${plural(names.length, one, many)} (${names.join(", ")})` : `no ${many}`
+}
+
+/** What the reader found in a pupil's database, and what changed from the starting database. */
+function DatabaseSummary({ summary }: { summary: DatabaseFileSummary }) {
+  const tables = summary.tables.length > 0
+    ? `${plural(summary.tables.length, "table")} (${summary.tables.map((t) => `${t.name} ${plural(t.records, "record")}`).join(", ")})`
+    : "no tables"
+  return (
+    <div className="mt-1 space-y-1 text-muted-foreground">
+      <p>
+        Read: {tables}; {namedCount(summary.queries, "query", "queries")};{" "}
+        {namedCount(summary.forms, "form")}; {namedCount(summary.reports, "report")}.
+      </p>
+      {summary.changes ? (
+        <details className="rounded border border-dashed border-border px-2 py-1">
+          <summary className="cursor-pointer font-medium">
+            Changes from the starting database{summary.startingDatabase ? ` (${summary.startingDatabase})` : ""}
+          </summary>
+          <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-foreground">
+            {summary.changes.join("\n")}
+          </pre>
+        </details>
+      ) : (
+        <p>Not compared with a starting database.</p>
+      )}
+    </div>
+  )
+}
+
+/** The database report the marker was given for a question: for the teacher, never the pupil. */
+export function EvidenceTexts({ texts }: { texts: AssessmentEvidenceText[] }) {
+  if (texts.length === 0) return null
+  return (
+    <details className="mt-2 rounded border border-dashed border-border px-2 py-1 text-xs">
+      <summary className="cursor-pointer font-medium text-muted-foreground">
+        What the marker read from the database (teacher only)
+      </summary>
+      <div className="mt-1 space-y-2">
+        {texts.map((text, index) => (
+          <div key={index}>
+            <p className="font-medium text-muted-foreground">{text.title}</p>
+            <pre className="mt-0.5 max-h-80 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-foreground">
+              {text.text}
+            </pre>
+          </div>
+        ))}
+      </div>
+    </details>
   )
 }
 

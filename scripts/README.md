@@ -123,17 +123,20 @@ Per slot it takes the source's latest attempt's current files (past versions dro
 
 ### `setup-powerpoint-assessment.sh`
 
-Creates PowerPoint assessment activities from specs in `scripts/powerpoint-assessments/<name>.json`: upload slots, supplied images and activity files (from the lesson's data activity), question paper, mark scheme, and the questions with their mark scheme rows, success criteria and evidence sources. The 6.5 Presentation lessons have one each: `starlight-practice-a`, `pearl-practice-b` and `horizon-assessment`.
+Creates practical assessment activities (PowerPoint or database) from specs in `scripts/powerpoint-assessments/<name>.json` or `scripts/database-assessments/<name>.json`: upload slots, supplied images (PowerPoint only) and activity files (from the lesson's data activity), the starting database (database only), question paper, mark scheme, and the questions with their mark scheme rows, success criteria and evidence sources. A spec's `"type"` is `"powerpoint-assessment"` (the default) or `"database-assessment"`. The 6.5 Presentation lessons have one each: `starlight-practice-a`, `pearl-practice-b` and `horizon-assessment`; the 6.2 Databases Assessment has `palm-grove-vets`.
+
+A database spec takes `"supplied_images": []` and an optional `"starting_database_file"`, which must be one of `activity_files`; the dry run reads it with mdbtools and lists its tables, and it is stored on the activity as `startingDatabaseFile`.
 
 ```bash
 bash scripts/setup-powerpoint-assessment.sh scripts/powerpoint-assessments/*.json                    # dry run: checks everything
 bash scripts/setup-powerpoint-assessment.sh scripts/powerpoint-assessments/*.json --apply            # create the activities
 bash scripts/setup-powerpoint-assessment.sh scripts/powerpoint-assessments/*.json --apply --copy     # ...and copy old uploads in
+bash scripts/setup-powerpoint-assessment.sh scripts/database-assessments/palm-grove-vets.json --apply   # a database assessment
 #   --hand-in        with --copy: hand in pupils whose required slots are filled (queues REAL AI marking; asks "yes")
 #   --yes, --files-root D, --fallback-root D   as for the copy script
 ```
 
-The dry run checks the lesson, the data files, the papers, the success criteria, every evidence source and the EVIDENCE template's headings, and lists what `--apply` would do. The activity is found by lesson and title, so re-running reuses it, adds only what is missing and never rewrites questions once set. `--copy` runs `copy-uploads-to-powerpoint-assessment.sh` with each spec's `copy_mapping` (in a dry run it reports "create it first" for an activity not made yet). Results go to `powerpoint-copy-results/`.
+The dry run checks the lesson, the data files, the papers, the success criteria, every evidence source, the EVIDENCE template's headings and the starting database, and lists what `--apply` would do. The activity is found by lesson and title, so re-running reuses it, adds only what is missing and never rewrites questions once set. `--copy` runs `copy-uploads-to-powerpoint-assessment.sh` with each PowerPoint spec's `copy_mapping` (database specs are skipped with a note) (in a dry run it reports "create it first" for an activity not made yet). Results go to `powerpoint-copy-results/`.
 
 ## Complete Workflow Example
 

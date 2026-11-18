@@ -1,5 +1,7 @@
 import Module from 'node:module'
 import { randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
+import nodePath from 'node:path'
 
 import { Document, HeadingLevel, Packer, Paragraph } from 'docx'
 
@@ -60,6 +62,7 @@ async function tearDown(activityIds: string[]) {
     await createLocalStorageClient('lessons').remove([path]).catch(() => {})
   }
   await query("delete from stored_files where bucket = 'lessons' and scope_path like $1", [`%${LESSON}%`])
+  await rm(nodePath.join(process.cwd(), 'files', 'lessons', LESSON), { recursive: true, force: true })
   await query('delete from profiles where user_id = any($1::text[])', [[PUPIL]])
 }
 

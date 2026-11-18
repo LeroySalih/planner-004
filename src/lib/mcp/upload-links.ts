@@ -6,8 +6,9 @@ import { assertActivityAcceptsFile } from '@/lib/mcp/activities'
 import type { McpCaller } from '@/lib/mcp/auth'
 import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
 import { ASSESSMENT_PAPER_UPLOAD_MAX_BYTES, assertPupilSitsAssessment } from '@/lib/assessment-paper/files'
-import { isAssessmentPaperType, isPowerPointAssessmentType, isQuestionMarkedActivityType } from '@/dino.config'
-import { AssessmentPaperActivityBodySchema, PowerPointAssessmentActivityBodySchema } from '@/types'
+import { isAssessmentPaperType, isPowerPointAssessmentType, isPracticalAssessmentType, isQuestionMarkedActivityType } from '@/dino.config'
+import { AssessmentPaperActivityBodySchema, type PracticalUploadSlot } from '@/types'
+import { practicalBodySchema, practicalTypeConfig } from '@/lib/practical-assessment/types'
 import { PRACTICAL_UPLOAD_MAX_BYTES, SUPPLIED_IMAGE_MAX_BYTES } from '@/lib/powerpoint-assessment/files'
 
 const LINK_LIFETIME_MINUTES = 15
@@ -74,7 +75,7 @@ export async function createUploadLink(
     )
     if (!rows[0]) throw new Error(`Activity ${target.assessmentActivityId} not found`)
     if (!isQuestionMarkedActivityType(rows[0].type)) {
-      throw new Error(`Activity ${target.assessmentActivityId} is not an assessment paper or PowerPoint assessment`)
+      throw new Error(`Activity ${target.assessmentActivityId} is not an assessment paper, PowerPoint assessment or database assessment`)
     }
     const uploadKind = target.uploadKind
     if (fileName !== null && uploadKind !== 'supplied_image') {
@@ -83,8 +84,8 @@ export async function createUploadLink(
     if (uploadKind === 'script') {
       if (!isAssessmentPaperType(rows[0].type)) {
         throw new Error(
-          isPowerPointAssessmentType(rows[0].type)
-            ? `Activity ${target.assessmentActivityId} is a PowerPoint assessment, which has no scripts: upload a pupil's files with kind "practical_file"`
+          isPracticalAssessmentType(rows[0].type)
+            ? `Activity ${target.assessmentActivityId} is a ${practicalTypeConfig(rows[0].type).labelLower}, which has no scripts: upload a pupil's files with kind "practical_file"`
             : `Activity ${target.assessmentActivityId} is not an assessment paper; scripts are for assessment papers`,
         )
       }
@@ -95,8 +96,12 @@ export async function createUploadLink(
       }
       await assertPupilSitsAssessment(target.assessmentActivityId, target.pupilId)
     } else if (uploadKind === 'supplied_image' || uploadKind === 'practical_file') {
-      if (!isPowerPointAssessmentType(rows[0].type)) {
-        throw new Error(`Activity ${target.assessmentActivityId} is not a PowerPoint assessment; kind "${uploadKind}" is for PowerPoint assessments`)
+      // Supplied images are PowerPoint's alone; a pupil's file goes in any practical assessment's slot.
+      if (uploadKind === 'supplied_image' && !isPowerPointAssessmentType(rows[0].type)) {
+        throw new Error(`Activity ${target.assessmentActivityId} is not a PowerPoint assessment; kind "supplied_image" is for PowerPoint assessments`)
+      }
+      if (uploadKind === 'practical_file' && !isPracticalAssessmentType(rows[0].type)) {
+        throw new Error(`Activity ${target.assessmentActivityId} is not a PowerPoint assessment or database assessment; kind "practical_file" is for PowerPoint and database assessments`)
       }
       if (uploadKind === 'supplied_image') {
         if (target.pupilId || target.slotKey) throw new Error('pupil_id and slot are only for kind "practical_file"; a supplied image belongs to the whole activity')
@@ -104,8 +109,8 @@ export async function createUploadLink(
       } else {
         if (!target.pupilId) throw new Error('pupil_id is required for kind "practical_file"')
         if (!target.slotKey) throw new Error('slot is required for kind "practical_file"')
-        const body = PowerPointAssessmentActivityBodySchema.safeParse(rows[0].body_data ?? {})
-        const slots = body.success ? body.data.uploadSlots : []
+        const body = practicalBodySchema(rows[0].type).safeParse(rows[0].body_data ?? {})
+        const slots = body.success ? (body.data as { uploadSlots: PracticalUploadSlot[] }).uploadSlots : []
         if (!slots.some((slot) => slot.key === target.slotKey)) {
           throw new Error(`No upload slot "${target.slotKey}" on this activity. Its slots are: ${slots.map((slot) => `${slot.key} (${slot.kind})`).join(', ') || 'none'}`)
         }
@@ -116,7 +121,7 @@ export async function createUploadLink(
       }
     } else if (target.pupilId || target.slotKey) {
       throw new Error(
-        isPowerPointAssessmentType(rows[0].type)
+        isPracticalAssessmentType(rows[0].type)
           ? 'pupil_id and slot are only for kind "practical_file"; the question paper and mark scheme belong to the whole activity'
           : 'pupil_id is only for a script; the question paper and mark scheme belong to the whole activity',
       )

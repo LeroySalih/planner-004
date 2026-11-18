@@ -5,7 +5,7 @@ import sharp from "sharp"
 
 import { query, withDbClient } from "@/lib/db"
 import { pdfPageCount, pdfToPngPages } from "@/lib/pdf/poppler"
-import { isAssessmentPaperType, isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
+import { isAssessmentPaperType, isPracticalAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import { recomputeAssessmentSubmission } from "@/lib/assessment-paper/store"
 import { NO_FRONT_SHEET_MESSAGE, checkFrontSheet } from "@/lib/assessment-paper/front-sheet"
@@ -598,8 +598,8 @@ export async function pupilHasSatAssessment(activityId: string, pupilId: string)
  * Whether a non-teacher may open a file in the assessment-scripts bucket: the
  * question paper once they have sat it (pupilHasSatAssessment), and the
  * original of their own script once the lesson's feedback is visible to them.
- * The mark scheme and the markable pages are for teachers. A PowerPoint
- * assessment's paper files follow pupilMayOpenPowerPointPaperFile; its pupils'
+ * The mark scheme and the markable pages are for teachers. A practical
+ * assessment's paper files follow pupilMayOpenPracticalPaperFile; its pupils'
  * files ({activityId}/practical/...) are checked by pupilMayOpenPracticalFile
  * (src/lib/powerpoint-assessment/files.ts), never here.
  */
@@ -615,8 +615,8 @@ export async function pupilMayOpenAssessmentPaperFile(pupilId: string, segments:
     if (!rows[0]) return false
     const body = AssessmentPaperActivityBodySchema.safeParse(rows[0].body_data ?? {})
     const path = segments.join("/")
-    if (isPowerPointAssessmentType(rows[0].type)) {
-      return pupilMayOpenPowerPointPaperFile(activityId, pupilId, path, body.success ? body.data : {})
+    if (isPracticalAssessmentType(rows[0].type)) {
+      return pupilMayOpenPracticalPaperFile(activityId, pupilId, path, body.success ? body.data : {})
     }
     if (!isAssessmentPaperType(rows[0].type)) return false
     const questionPaperPath = body.success ? body.data.questionPaperPath : undefined
@@ -627,14 +627,14 @@ export async function pupilMayOpenAssessmentPaperFile(pupilId: string, segments:
 }
 
 /**
- * A PowerPoint assessment is done in class with its question paper open, so
- * a pupil the lesson is set to may open the question paper at any time, but
- * not while the lesson is locked for them (a locked lesson allows no
- * downloads). The mark scheme PDF is never served to a pupil, as for an
+ * A practical assessment (PowerPoint or database) is done in class with its
+ * question paper open, so a pupil the lesson is set to may open the question
+ * paper at any time, but not while the lesson is locked for them (a locked
+ * lesson allows no downloads). The mark scheme PDF is never served to a pupil, as for an
  * assessment paper; showMarkSchemeToPupils only decides whether the feedback
  * includes each question's mark scheme text.
  */
-async function pupilMayOpenPowerPointPaperFile(
+async function pupilMayOpenPracticalPaperFile(
   activityId: string,
   pupilId: string,
   path: string,

@@ -23,7 +23,8 @@ import {
   type DraftEvidenceSource,
 } from "@/components/lessons/question-evidence-editor"
 import { validateQuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
-import type { PowerPointUploadSlot } from "@/types"
+import { practicalTypeConfig, type PracticalAssessmentType } from "@/lib/practical-assessment/types"
+import type { PracticalUploadSlot } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -37,9 +38,10 @@ import { cn } from "@/lib/utils"
 // scripts fared in the front sheet check. Each part saves on its own; the
 // sheet's Save button only saves the title and instructions.
 //
-// A PowerPoint assessment's questions are edited here too (`powerPoint`): each
-// question also has its evidence sources, checked against the saved upload
-// slots before saving, and there are pupils' files instead of scripts.
+// A practical assessment's (PowerPoint or database) questions are edited here
+// too (`powerPoint`): each question also has its evidence sources, checked
+// against the saved upload slots before saving, and there are pupils' files
+// instead of scripts.
 
 export interface AssessmentPaperCriterionOption {
   successCriteriaId: string
@@ -161,10 +163,11 @@ interface AssessmentPaperEditorProps {
   /** Called after anything is saved, so the lesson can refresh when the sheet closes. */
   onSaved?: () => void
   /**
-   * PowerPoint assessment: its saved upload slots and the activity's own
-   * files, for each question's evidence sources.
+   * A practical assessment (PowerPoint or database): its type, its saved
+   * upload slots and the activity's own files, for each question's evidence
+   * sources.
    */
-  powerPoint?: { slots: PowerPointUploadSlot[]; referenceFiles: string[] }
+  powerPoint?: { type: PracticalAssessmentType; slots: PracticalUploadSlot[]; referenceFiles: string[] }
   /** Called after the questions are saved. */
   onQuestionsSaved?: () => void
 }
@@ -258,7 +261,8 @@ export function AssessmentPaperEditor({
     () => questions.map((q, index) => questionProblem(q, labels, new Set(questions.slice(0, index).map((e) => e.key)))),
     [questions, labels],
   )
-  // A PowerPoint assessment's evidence, checked as the store will check it.
+  // A practical assessment's evidence, checked as the store will check it.
+  const practicalType: PracticalAssessmentType = powerPoint?.type ?? "powerpoint-assessment"
   const evidenceCheck = useMemo(() => {
     if (!powerPoint) return null
     const { errors } = validateQuestionEvidence(
@@ -268,9 +272,10 @@ export function AssessmentPaperEditor({
         evidence: fromDraftSources(q.evidence, q.label),
       })),
       { uploadSlots: powerPoint.slots },
+      practicalType,
     )
     return problemsByLabel(errors)
-  }, [powerPoint, questions])
+  }, [powerPoint, questions, practicalType])
   const serverProblems = useMemo(() => problemsByLabel(questionsError ? [questionsError] : []), [questionsError])
   const questionsValid =
     problems.every((p) => p === null) && (!evidenceCheck || evidenceCheck.size === 0)
@@ -311,8 +316,10 @@ export function AssessmentPaperEditor({
         marking: "ai",
         dependsOnKey: null,
         criteria: [],
-        // A new question reads the presentation until told otherwise.
-        evidence: powerPoint ? [newDraftSource("presentation", powerPoint.slots, powerPoint.referenceFiles)] : [],
+        // A new question reads the main file (the presentation or the database) until told otherwise.
+        evidence: powerPoint
+          ? [newDraftSource(practicalTypeConfig(powerPoint.type).sources[0], powerPoint.slots, powerPoint.referenceFiles)]
+          : [],
       },
     ])
   }
@@ -959,6 +966,7 @@ export function AssessmentPaperEditor({
                         questionKey={question.key}
                         questionLabel={question.label}
                         sources={question.evidence}
+                        type={powerPoint.type}
                         slots={powerPoint.slots}
                         referenceFiles={powerPoint.referenceFiles}
                         disabled={isSavingQuestions}

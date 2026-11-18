@@ -5,6 +5,18 @@ import { createHash } from "node:crypto"
 import sharp from "sharp"
 
 import { query } from "@/lib/db"
+import {
+  RECORDS_SHOWN_MAX,
+  describeDatabase,
+  describeDatabaseSections,
+  filterDatabaseSections,
+  type DatabaseReport,
+} from "@/lib/accdb/describe"
+import { diffDatabases } from "@/lib/accdb/diff"
+import { UnreadableDatabaseError } from "@/lib/accdb/errors"
+import { readAccessDatabase } from "@/lib/accdb/read"
+import { formatDatabaseSection, type DatabaseSectionSelector } from "@/lib/accdb/section-selectors"
+import type { DatabaseSnapshot } from "@/lib/accdb/types"
 import { ASSESSMENT_SCRIPTS_BUCKET } from "@/lib/assessment-paper/files"
 import {
   readAssessmentQuestions,
@@ -21,6 +33,7 @@ import { OfficeFileError } from "@/lib/pptx/errors"
 import { inspectPptx, type PresentationReport } from "@/lib/pptx/inspect"
 import { listPracticalFiles, readKnownImages, readPracticalFileBytes, type PracticalFileRow } from "@/lib/powerpoint-assessment/files"
 import {
+  databaseSections,
   evidenceHeading,
   presentationSections,
   formatPresentationSection,
@@ -29,18 +42,23 @@ import {
 } from "@/lib/powerpoint-assessment/evidence-spec"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { joinLabels } from "@/lib/utils"
-import {
-  PowerPointAssessmentActivityBodySchema,
-  type PowerPointUploadSlot,
-  type PowerPointUploadSlotKind,
-} from "@/types"
+import { isDatabaseAssessmentType, isPracticalAssessmentType } from "@/dino.config"
+import { practicalTypeConfig, type PracticalAssessmentType } from "@/lib/practical-assessment/types"
+import type { PracticalUploadSlot, PracticalUploadSlotKind } from "@/types"
 
-// The read of a PowerPoint assessment (the `ai_read` job), with no model.
+// The read of a practical assessment, PowerPoint or database (the `ai_read`
+// job), with no model.
 //
 // Each handed-in file is read by its slot's kind:
 //
 //   pptx   inspectPptx, knowing the activity's supplied images -> the report
 //          and its description;
+//   accdb  readAccessDatabase (mdbtools) -> the database snapshot, its
+//          changes from the activity's starting database
+//          (body_data.startingDatabaseFile, an ordinary activity file, read
+//          once per job) and its description. A starting database that is
+//          missing or cannot be read is a warning (changes not listed), never
+//          a hold;
 //   pdf    pdfinfo's page count and pdftotext's text (capped);
 //   docx   the evidence document: the text and pictures under each heading
 //          the questions' evidence_section sources name, the blank template's
@@ -74,7 +92,10 @@ import {
 //           (want 'text') it has no typed text, (want 'screenshots') no
 //           picture, (want 'both') neither text nor a picture: either one is
 //           enough. A required presentation source is missing when none of
-//           its sections exists (slides:6 in a five-slide file).
+//           its sections exists (slides:6 in a five-slide file), and a
+//           required database source when none of its sections exists
+//           (query:NOPE in a database with no such query: "There is no saved
+//           query called NOPE in your database.").
 //           A missing required screenshot is always blank (teacher decision
 //           4): pictures outside every heading are kept for the teacher but
 //           never stand in for it.
@@ -89,6 +110,10 @@ import {
 
 /** Bump when a reader's output changes, so stored evidence is read again. */
 export const READER_VERSION = "powerpoint-reader-1"
+/** The database reader's part of an accdb file's cache key: bump when src/lib/accdb's output changes. */
+export const DATABASE_READER_VERSION = "database-reader-1"
+/** The evidence document reader's part of a .docx file's cache key: bump when src/lib/docx/evidence.ts's output changes. */
+export const EVIDENCE_DOC_READER_VERSION = "evidence-doc-reader-2"
 /** Characters of a PDF's text kept. */
 export const PDF_TEXT_MAX_CHARS = 20_000
 /** A PDF larger than this is not read: the marker takes no larger (MARK_MAX_PDF_BYTES, marking.ts). */
@@ -116,6 +141,8 @@ export interface PowerPointReaders {
   pdfText: typeof pdfText
   /** Absent: LibreOffice via Gotenberg (renderWithGotenberg). */
   renderPresentation?: PresentationRenderer
+  /** Absent: readAccessDatabase. Optional so a PowerPoint-only reader set still fits. */
+  readDatabase?: typeof readAccessDatabase
 }
 
 /** The default renderer: Gotenberg's LibreOffice route, hidden slides included so pages match slide numbers. */
@@ -134,12 +161,13 @@ export const renderWithGotenberg: PresentationRenderer = async (pptx) => {
 
 const DEFAULT_READERS: PowerPointReaders = { inspectPptx, readEvidenceDocument, pdfPageCount, pdfText }
 
-export type EvidenceKind = "presentation" | "pdf" | "evidence_doc"
+export type EvidenceKind = "presentation" | "pdf" | "evidence_doc" | "database"
 
-const EVIDENCE_KIND: Record<PowerPointUploadSlotKind, EvidenceKind> = {
+const EVIDENCE_KIND: Record<PracticalUploadSlotKind, EvidenceKind> = {
   pptx: "presentation",
   pdf: "pdf",
   docx: "evidence_doc",
+  accdb: "database",
 }
 
 /** A picture the reader stored from an evidence document. */
@@ -195,6 +223,13 @@ export type EvidenceDocReport = {
 /** practical_submission_evidence.report for a PDF. */
 export type PdfReport = { pageCount: number; text: string; chars: number; truncated: boolean }
 
+/**
+ * practical_submission_evidence.report for a database: the snapshot, its
+ * changes from the starting database (null when there is none to compare
+ * with) and why the starting database could not be used, if it could not.
+ */
+export type DatabaseEvidenceReport = DatabaseReport & { startWarnings: string[] }
+
 export type SlotEvidence =
   | {
       kind: "presentation"
@@ -206,10 +241,11 @@ export type SlotEvidence =
     }
   | { kind: "pdf"; status: "ok"; report: PdfReport }
   | { kind: "evidence_doc"; status: "ok"; report: EvidenceDocReport }
+  | { kind: "database"; status: "ok"; report: DatabaseEvidenceReport; description: string }
   | { kind: EvidenceKind; status: "error"; error: string; tooLarge?: boolean }
 
 export type SlotRead = {
-  slot: PowerPointUploadSlot
+  slot: PracticalUploadSlot
   file: PracticalFileRow | null
   evidence: SlotEvidence | null
   cached: boolean
@@ -218,8 +254,10 @@ export type SlotRead = {
 
 export interface PowerPointReadCallRecord {
   request: {
-    reader: "powerpoint"
+    reader: "powerpoint" | "database"
     readerVersion: string
+    /** A database assessment's: the database reader's version, part of an accdb file's cache key. */
+    databaseReaderVersion?: string
     /** No pupil file names: the slot's label, the file id and its type. */
     files: { slot: string; label: string; fileId: string; ext: string; bytes: number; sha256: string; cached: boolean }[]
     durations: Record<string, number>
@@ -235,6 +273,8 @@ export interface PowerPointReadCallRecord {
       sectionsFound?: string[]
       missingHeadings?: string[]
       unplacedPictures?: number
+      /** A database read: how many of each it has (counts only, no names). */
+      database?: { tables: number; queries: number; forms: number; reports: number }
       warnings: string[]
     }[]
     answers: { label: string; kind: AnswerKind; status: AnswerStatus }[]
@@ -283,32 +323,49 @@ export async function readActivityFile(lessonId: string, activityId: string, fil
 type ActivityContext = {
   activityId: string
   lessonId: string
-  slots: PowerPointUploadSlot[]
+  type: PracticalAssessmentType
+  slots: PracticalUploadSlot[]
   evidenceTemplateFile: string | null
+  /** A database assessment's starting database (an activity file), or null. */
+  startingDatabaseFile: string | null
   /** Why the activity's body cannot be read, or null. */
   bodyError: string | null
 }
 
+type PracticalBody = {
+  uploadSlots: PracticalUploadSlot[]
+  evidenceTemplateFile?: string
+  startingDatabaseFile?: string
+}
+
 async function readActivity(submissionId: string): Promise<ActivityContext> {
-  const { rows } = await query<{ activity_id: string; lesson_id: string; body_data: unknown }>(
-    `select a.activity_id, a.lesson_id, a.body_data
+  const { rows } = await query<{ activity_id: string; lesson_id: string; type: string | null; body_data: unknown }>(
+    `select a.activity_id, a.lesson_id, a.type, a.body_data
        from submissions s join activities a on a.activity_id = s.activity_id
       where s.submission_id = $1`,
     [submissionId],
   )
   const row = rows[0]
   if (!row) throw new Error(`Submission ${submissionId} not found.`)
-  const body = PowerPointAssessmentActivityBodySchema.safeParse(row.body_data ?? {})
+  if (!isPracticalAssessmentType(row.type)) throw new Error(`Submission ${submissionId} is not on a practical assessment.`)
+  const config = practicalTypeConfig(row.type)
+  const parsed = config.bodySchema.safeParse(row.body_data ?? {})
+  const body = parsed.success ? (parsed.data as PracticalBody) : null
   return {
     activityId: row.activity_id,
     lessonId: row.lesson_id,
-    slots: body.success ? body.data.uploadSlots : [],
-    evidenceTemplateFile: body.success ? body.data.evidenceTemplateFile ?? null : null,
-    bodyError: body.success
+    type: config.type,
+    slots: body ? body.uploadSlots : [],
+    evidenceTemplateFile: body?.evidenceTemplateFile ?? null,
+    startingDatabaseFile: (config.hasStartingDatabase ? body?.startingDatabaseFile : null) ?? null,
+    bodyError: body
       ? null
-      : "Not marked: this PowerPoint assessment's upload slots are not set up. Set them up in the lesson editor, then send the work again.",
+      : `Not marked: this ${config.labelLower}'s upload slots are not set up. Set them up in the lesson editor, then send the work again.`,
   }
 }
+
+/** The starting database as a read uses it: the snapshot to compare with, or why there is none. */
+type StartingDatabaseRead = { snapshot: DatabaseSnapshot | null; warning: string | null }
 
 /** The headings each docx slot is read for, from the questions' evidence_section sources (one per heading). */
 function headingsBySlot(questions: AssessmentQuestion[]): Map<string, string[]> {
@@ -360,6 +417,10 @@ export function evidenceFromRow(kind: EvidenceKind, row: StoredEvidenceRow): Slo
     }
   }
   if (kind === "pdf") return { kind, status: "ok", report: row.report as PdfReport }
+  if (kind === "database") {
+    const report = row.report as DatabaseEvidenceReport
+    return { kind, status: "ok", report: { ...report, startWarnings: report.startWarnings ?? [] }, description: row.description ?? "" }
+  }
   return { kind, status: "ok", report: row.report as EvidenceDocReport }
 }
 
@@ -496,7 +557,7 @@ type ReadOutcome = {
 /** Read one file. A file the reader refuses comes back as status 'error'; anything else throws (and is retried). */
 async function readFile(
   context: ActivityContext,
-  slot: PowerPointUploadSlot,
+  slot: PracticalUploadSlot,
   file: PracticalFileRow,
   bytes: Buffer,
   inputs: {
@@ -505,6 +566,8 @@ async function readFile(
     templateParagraphs: string[] | null
     /** Draw the slides too (a question reads them as slide_images). */
     renderSlides: boolean
+    /** The starting database, read at most once per job. */
+    startingDatabase: () => Promise<StartingDatabaseRead>
   },
   readers: PowerPointReaders,
 ): Promise<ReadOutcome> {
@@ -544,6 +607,27 @@ async function readFile(
       description,
       imagePaths,
     }
+  }
+
+  if (slot.kind === "accdb") {
+    let snapshot: DatabaseSnapshot
+    try {
+      snapshot = await (readers.readDatabase ?? readAccessDatabase)(bytes)
+    } catch (error) {
+      // The file is bad (not an .accdb, damaged, a password): a refusal.
+      // mdbtools missing or too slow is thrown, so the job retries.
+      if (error instanceof UnreadableDatabaseError) return refused(error.message)
+      throw error
+    }
+    const start = await inputs.startingDatabase()
+    const report: DatabaseEvidenceReport = {
+      snapshot,
+      changes: start.snapshot ? diffDatabases(start.snapshot, snapshot) : null,
+      startingDatabase: context.startingDatabaseFile ? { fileName: context.startingDatabaseFile } : null,
+      startWarnings: start.warning ? [start.warning] : [],
+    }
+    const description = describeDatabase(report)
+    return { evidence: { kind: "database", status: "ok", report, description }, report, description, imagePaths: [] }
   }
 
   if (slot.kind === "pdf") {
@@ -654,6 +738,29 @@ export async function readPowerPointSubmission(
       templateHash = "missing"
     }
   }
+  // The starting database: its bytes for the cache key now, its snapshot only
+  // when a database is actually read (once per job).
+  const needsAccdb = context.slots.some((slot) => slot.kind === "accdb" && fileBySlot.has(slot.key))
+  const startName = context.startingDatabaseFile
+  const startBytes = needsAccdb && startName ? await readActivityFile(context.lessonId, context.activityId, startName) : null
+  const startHash = !startName ? "none" : startBytes ? sha256(startBytes) : "missing"
+  let startRead: Promise<StartingDatabaseRead> | null = null
+  const startingDatabase = () =>
+    (startRead ??= (async (): Promise<StartingDatabaseRead> => {
+      if (!startName) return { snapshot: null, warning: null }
+      if (!startBytes) {
+        return {
+          snapshot: null,
+          warning: `The starting database "${startName}" is not among the activity's files, so changes are not listed.`,
+        }
+      }
+      try {
+        return { snapshot: await (readers.readDatabase ?? readAccessDatabase)(startBytes), warning: null }
+      } catch (error) {
+        if (!(error instanceof UnreadableDatabaseError)) throw error
+        return { snapshot: null, warning: `The starting database "${startName}" could not be read, so changes are not listed.` }
+      }
+    })())
 
   const { rows: storedRows } = await query<StoredEvidenceRow & { file_id: string }>(
     `select file_id::text as file_id, status, error, cache_key, report, description
@@ -676,9 +783,12 @@ export async function readPowerPointSubmission(
       slot.kind === "pptx"
         ? `${knownImagesHash}${renderSlides ? `:${SLIDE_RENDER_VERSION}` : ""}`
         : slot.kind === "docx"
-          ? sha256(JSON.stringify({ headings: slotHeadings, template: templateHash }))
+          ? sha256(JSON.stringify({ headings: slotHeadings, template: templateHash, reader: EVIDENCE_DOC_READER_VERSION }))
           : "-"
-    const cacheKey = `${file.sha256}:${inputsHash}:${READER_VERSION}`
+    const cacheKey =
+      slot.kind === "accdb"
+        ? `${file.sha256}:${startHash}:${DATABASE_READER_VERSION}`
+        : `${file.sha256}:${inputsHash}:${READER_VERSION}`
     const stored = storedByFile.get(file.file_id)
     if (stored && stored.cache_key === cacheKey) {
       slots.push({ slot, file, evidence: evidenceFromRow(kind, stored), cached: true, durationMs: 0 })
@@ -692,7 +802,7 @@ export async function readPowerPointSubmission(
       slot,
       file,
       bytes,
-      { knownImages, headings: slotHeadings, templateParagraphs, renderSlides },
+      { knownImages, headings: slotHeadings, templateParagraphs, renderSlides, startingDatabase },
       readers,
     )
     // Slides that could not be rendered are tried again on the next read.
@@ -731,8 +841,9 @@ export async function readPowerPointSubmission(
 
   const call: PowerPointReadCallRecord = {
     request: {
-      reader: "powerpoint",
+      reader: isDatabaseAssessmentType(context.type) ? "database" : "powerpoint",
       readerVersion: READER_VERSION,
+      ...(isDatabaseAssessmentType(context.type) ? { databaseReaderVersion: DATABASE_READER_VERSION } : {}),
       files: slots.flatMap((read) =>
         read.file
           ? [{
@@ -772,6 +883,19 @@ function slotSummary(read: SlotRead): PowerPointReadCallRecord["response"]["slot
     return { ...base, ...(slides?.status === "ok" ? { slidesRendered: slides.images.length } : {}), warnings }
   }
   if (evidence.kind === "pdf") return { ...base, warnings }
+  if (evidence.kind === "database") {
+    const snapshot = evidence.report.snapshot
+    return {
+      ...base,
+      database: {
+        tables: snapshot.tables.length,
+        queries: snapshot.queries.length,
+        forms: snapshot.forms.length,
+        reports: snapshot.reports.length,
+      },
+      warnings,
+    }
+  }
   return {
     ...base,
     sectionsFound: evidence.report.sections.map((section) => section.label),
@@ -796,6 +920,17 @@ export function evidenceWarnings(evidence: SlotEvidence): string[] {
   }
   if (evidence.kind === "pdf") {
     return evidence.report.truncated ? [`Text cut to ${PDF_TEXT_MAX_CHARS} characters of ${evidence.report.chars}.`] : []
+  }
+  if (evidence.kind === "database") {
+    const { snapshot, startWarnings } = evidence.report
+    return [
+      ...snapshot.warnings,
+      ...startWarnings,
+      ...snapshot.tables.flatMap((table) => {
+        const shown = Math.min(RECORDS_SHOWN_MAX, table.rows.length)
+        return table.rowCount > shown ? [`${table.name}: ${shown} of ${table.rowCount} records shown.`] : []
+      }),
+    ]
   }
   return evidence.report.warnings
 }
@@ -843,6 +978,25 @@ const SECTION_NAMES: Record<string, string> = {
   "supplied-images": "supplied images",
   media: "media",
   warnings: "warnings",
+}
+
+const DATABASE_SECTION_NAMES: Record<string, string> = {
+  tables: "tables",
+  fields: "fields",
+  relationships: "relationships",
+  lookups: "lookups",
+  "table-sort": "table sort",
+  records: "every table's records",
+  changes: "changes from the starting database",
+  queries: "saved queries",
+  objects: "forms and reports",
+  warnings: "warnings",
+}
+
+function databaseSectionName(selector: DatabaseSectionSelector) {
+  if (selector.key === "records" && selector.name !== null) return `records in ${selector.name}`
+  if (selector.key === "query" && selector.name !== null) return `query ${selector.name}`
+  return DATABASE_SECTION_NAMES[selector.key] ?? selector.key
 }
 
 function sectionName(selector: PresentationSectionSelector) {
@@ -926,6 +1080,34 @@ function findSource(source: QuestionEvidence, label: string, slots: SlotRead[]):
       digest: `${file.original_name}: ${plural(evidence.report.pageCount, "page")}.`,
       pupil: true,
       textOnly: false,
+    }
+  }
+
+  if (source.source === "database") {
+    const required = source.required ?? false
+    if (!file) return { present: false, required, typed: null, digest: notHandedIn, pupil: true, textOnly: false, missing: didNotHandIn }
+    if (evidence?.kind !== "database") return { present: false, required, typed: null, digest: notHandedIn, pupil: true, textOnly: false }
+    const selectors = databaseSections(source)
+    const found = filterDatabaseSections(describeDatabaseSections(evidence.report), selectors.map(formatDatabaseSection))
+    const present = found.some((section) => !section.absent)
+    // The slot's label, never the pupil's file name.
+    const what = source.sections ? selectors.map(databaseSectionName).join(", ") : "every part but records"
+    const absent = found.flatMap((section) => (section.absent ? [section.absent] : []))
+    const missing = absent.length > 0
+      ? absent
+          .map((a) => a.kind === "query"
+            ? `There is no saved query called ${a.name} in your database.`
+            : `There is no table called ${a.name} in your database.`)
+          .join(" ")
+      : undefined
+    return {
+      present,
+      required,
+      typed: null,
+      digest: present ? `Database (${slotLabel}): ${what}.` : `Database (${slotLabel}): ${what} not in the file.`,
+      pupil: true,
+      textOnly: false,
+      missing: present ? undefined : missing,
     }
   }
 

@@ -46,6 +46,7 @@ MIGRATIONS=(
   "143-powerpoint-assessment.sql|select exists (select 1 from information_schema.tables where table_name = 'practical_submission_files')"
   "144-assessment-question-flags.sql|select exists (select 1 from information_schema.tables where table_name = 'submission_question_flags')"
   "145-backup-requests.sql|select exists (select 1 from information_schema.tables where table_name = 'backup_requests')"
+  "146-database-assessment.sql|select is_question_marked_activity_type('database-assessment')"
 )
 
 YES=false

@@ -19,10 +19,11 @@ import { readPupilPowerPointView } from "@/lib/powerpoint-assessment/pupil-view"
 import { reopenPowerPointAssessmentForTeacher } from "@/lib/powerpoint-assessment/reopen"
 import { withTelemetry } from "@/lib/telemetry"
 
-// A PowerPoint assessment's files: the pupil's slots and Hand in, and the
-// images a teacher supplies with the task. A pupil's file itself is uploaded
-// through POST /api/pupil-submission/practical (a presentation can be larger
-// than the server-action body limit).
+// A practical assessment's files (PowerPoint or database): the pupil's slots,
+// Hand in and Undo hand in, for any practical type; and the images a teacher
+// supplies with a PowerPoint task (PowerPoint only). A pupil's file itself is
+// uploaded through POST /api/pupil-submission/practical (a presentation or
+// database can be larger than the server-action body limit).
 
 const ROUTE_TAG = "/lessons:powerpoint-assessment"
 

@@ -21,6 +21,7 @@ import { MediaImage } from "@/components/ui/media-image"
 // bundle cost here is small; the CSP allows it because it is bundled, not remote.
 import { renderTaskMarkup } from "@/lib/code-highlight"
 import { cn } from "@/lib/utils"
+import { isPracticalAssessmentType } from "@/dino.config"
 import {
   getActivityFileUrlValue,
   getActivityTextValue,
@@ -397,7 +398,7 @@ function ActivityShortView({
     )
   } else if (activity.type === "assessment-paper") {
     content = <AssessmentPaperShortView activity={activity} />
-  } else if (activity.type === "powerpoint-assessment") {
+  } else if (isPracticalAssessmentType(activity.type)) {
     content = <PowerPointAssessmentShortView activity={activity} />
   } else if (activity.type === "mark-worksheet") {
     const markWorksheet = getMarkWorksheetBody(activity)
@@ -1402,7 +1403,7 @@ function ActivityPresentView({
     )
   }
 
-  if (activity.type === "assessment-paper" || activity.type === "powerpoint-assessment") {
+  if (activity.type === "assessment-paper" || isPracticalAssessmentType(activity.type)) {
     return wrap(<AssessmentPaperPresentView activity={activity} />)
   }
 

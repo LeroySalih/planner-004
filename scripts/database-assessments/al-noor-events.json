@@ -1,0 +1,1503 @@
+{
+  "type": "database-assessment",
+  "lesson_id": "d3376086-f923-4da8-a8a4-66c951b11932",
+  "title": "Hand in AL NOOR EVENTS database and EVIDENCE",
+  "upload_slots": [
+    {
+      "key": "database",
+      "label": "AL NOOR EVENTS database",
+      "kind": "accdb",
+      "required": true
+    },
+    {
+      "key": "evidence",
+      "label": "EVIDENCE",
+      "kind": "docx",
+      "required": true
+    }
+  ],
+  "data_activity_id": "265da93c-04eb-4cb9-91fc-5b91fafb5ea0",
+  "supplied_images": [],
+  "activity_files": [
+    "AL NOOR EVENTS.accdb",
+    "EVIDENCE.docx"
+  ],
+  "evidence_template_file": "EVIDENCE.docx",
+  "starting_database_file": "AL NOOR EVENTS.accdb",
+  "question_paper": "lessons/d3376086-f923-4da8-a8a4-66c951b11932/activities/826365de-64d4-4854-bf29-33fb9697d192/6.2 DATABASES ASSESSMENT – AL NOOR EVENTS.pdf",
+  "mark_scheme": "lessons/d3376086-f923-4da8-a8a4-66c951b11932/6.2 DATABASES ASSESSMENT – AL NOOR EVENTS MARK SCHEME.pdf",
+  "questions": [
+    {
+      "label": "1a",
+      "max_marks": 1,
+      "question_text": "Create a columnar form for the EVENTS table, with all the fields, saved as EVENT FORM, in this house style: the title Al Noor Events in white text on a dark background, on one line in the Form Header.",
+      "mark_scheme": "Award the mark for: Title Al Noor Events: white text, dark background, one line, Form Header.\nCheck / do not accept: Spelling must be exact.",
+      "marking": "ai",
+      "success_criteria_id": "c650a629-b6c0-4417-b2a2-a3255e0e9911",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1b",
+      "max_marks": 1,
+      "question_text": "Create a columnar form for the EVENTS table, with all the fields, saved as EVENT FORM, in this house style: the Form Header exactly 2 cm high.",
+      "mark_scheme": "Award the mark for: Form Header Height = 2 cm.\nCheck / do not accept: Check the Property Sheet or the vertical ruler.",
+      "marking": "ai_check",
+      "success_criteria_id": "c650a629-b6c0-4417-b2a2-a3255e0e9911",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1c",
+      "max_marks": 1,
+      "question_text": "Create a columnar form for the EVENTS table, with all the fields, saved as EVENT FORM, in this house style: an automatic date and time in the Form Header.",
+      "mark_scheme": "Award the mark for: Automatic date and time in the Form Header: =Now(), or =Date() and =Time(), or the Date and Time control with both ticked.\nCheck / do not accept: Typed date: no mark. Date only: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "66f5e753-7bee-44f8-a42d-d98285fc5d78",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1d",
+      "max_marks": 1,
+      "question_text": "Create a columnar form for the EVENTS table, with all the fields, saved as EVENT FORM, in this house style: the logo AL NOOR LOGO in the top right of the Form Header.",
+      "mark_scheme": "Award the mark for: Logo in the top right of the Form Header.\nCheck / do not accept: Logo in the Detail section or footer: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "66f5e753-7bee-44f8-a42d-d98285fc5d78",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1e",
+      "max_marks": 1,
+      "question_text": "Create a columnar form for the EVENTS table, with all the fields, saved as EVENT FORM, in this house style: field headings in a serif font, size 14.",
+      "mark_scheme": "Award the mark for: Field heading labels serif, size 14.\nCheck / do not accept: All heading labels needed.",
+      "marking": "ai_check",
+      "success_criteria_id": "095ada86-4e23-4607-8941-7910d60c808a",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1f",
+      "max_marks": 1,
+      "question_text": "Create a columnar form for the EVENTS table, with all the fields, saved as EVENT FORM, in this house style: no borders on the field headings.",
+      "mark_scheme": "Award the mark for: Field heading labels Border Style = Transparent (no borders).\nCheck / do not accept: Any heading with a border: no mark.",
+      "marking": "ai_check",
+      "success_criteria_id": "095ada86-4e23-4607-8941-7910d60c808a",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1g",
+      "max_marks": 1,
+      "question_text": "Create a columnar form for the EVENTS table, with all the fields, saved as EVENT FORM, in this house style: the EVENT TYPE and VENUE fields exactly 4 cm wide.",
+      "mark_scheme": "Award the mark for: EVENT TYPE and VENUE text boxes Width = 4 cm.\nCheck / do not accept: Both fields needed.",
+      "marking": "ai_check",
+      "success_criteria_id": "c8cabcca-47a9-402f-9413-442d7dfe7b80",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1h",
+      "max_marks": 1,
+      "question_text": "Create a columnar form for the EVENTS table, with all the fields, saved as EVENT FORM, in this house style: the data in the EVENT TYPE and VENUE fields centre-aligned.",
+      "mark_scheme": "Award the mark for: EVENT TYPE and VENUE text boxes Text Align = Center.\nCheck / do not accept: Heading labels centred but data not: no mark.",
+      "marking": "ai_check",
+      "success_criteria_id": "c8cabcca-47a9-402f-9413-442d7dfe7b80",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1i",
+      "max_marks": 1,
+      "question_text": "Create a columnar form for the EVENTS table, with all the fields, saved as EVENT FORM, in this house style: a pale background colour (not white) in the Detail section.",
+      "mark_scheme": "Award the mark for: Detail section Back Color is a pale colour, not white.\nCheck / do not accept: Dark colour or white: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "c650a629-b6c0-4417-b2a2-a3255e0e9911",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1j",
+      "max_marks": 1,
+      "question_text": "Create a columnar form for the EVENTS table, with all the fields, saved as EVENT FORM, in this house style: a button in the Form Footer that saves the current record.",
+      "mark_scheme": "Award the mark for: Command button in the Form Footer with the action Save Record (Record Operations).\nCheck / do not accept: Button in the Detail section or another action: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "66f5e753-7bee-44f8-a42d-d98285fc5d78",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1k",
+      "max_marks": 1,
+      "question_text": "Create a columnar form for the EVENTS table, with all the fields, saved as EVENT FORM, in this house style: no field headings or data truncated.",
+      "mark_scheme": "Award the mark for: Form view: every field heading and every value shown in full.\nCheck / do not accept: Any text cut off: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "c8cabcca-47a9-402f-9413-442d7dfe7b80",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "2(1)",
+      "max_marks": 1,
+      "question_text": "Use EVENT FORM to add this event, choosing EVENT TYPE and VENUE from the lookup lists: CLIENT ID C008, EVENT TYPE Corporate, EVENT DATE 18/02/2027, VENUE Hotel Ballroom, GUESTS 60, DEPOSIT 1500, DEPOSIT PAID Yes, CATERING Yes. Screenshot of the new record in form view at 2.",
+      "mark_scheme": "Award the mark for: CLIENT ID C008, EVENT DATE 18/02/2027, GUESTS 60, DEPOSIT 1500 all correct.\nCheck / do not accept: Any error: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "d0ce2746-c14d-4505-857d-b289d9a18f97",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "changes"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "2",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "2(2)",
+      "max_marks": 1,
+      "question_text": "Use EVENT FORM to add this event, choosing EVENT TYPE and VENUE from the lookup lists: CLIENT ID C008, EVENT TYPE Corporate, EVENT DATE 18/02/2027, VENUE Hotel Ballroom, GUESTS 60, DEPOSIT 1500, DEPOSIT PAID Yes, CATERING Yes. Screenshot of the new record in form view at 2.",
+      "mark_scheme": "Award the mark for: EVENT TYPE Corporate and VENUE Hotel Ballroom chosen from the lists; DEPOSIT PAID and CATERING both ticked.\nCheck / do not accept: Screenshot must be in form view.",
+      "marking": "ai",
+      "success_criteria_id": "d0ce2746-c14d-4505-857d-b289d9a18f97",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "2",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "changes",
+            "lookups"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "3(1)",
+      "max_marks": 1,
+      "question_text": "Open the CLIENTS table in datasheet view (do not use a form) and add this record: CLIENT ID C021, FIRST NAME Noura, SURNAME Al-Mutairi, CONTACT NUMBER 0553217788, CITY Al Khobar, LOYALTY MEMBER Yes. Screenshot of the CLIENTS table in datasheet view showing the new record at 3.",
+      "mark_scheme": "Award the mark for: C021, Noura, Al-Mutairi, 0553217788, Al Khobar all entered exactly.\nCheck / do not accept: Any spelling or digit error: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "f11eb797-3181-459f-ae07-ff6674ab5fad",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "changes"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "3",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "3(2)",
+      "max_marks": 1,
+      "question_text": "Open the CLIENTS table in datasheet view (do not use a form) and add this record: CLIENT ID C021, FIRST NAME Noura, SURNAME Al-Mutairi, CONTACT NUMBER 0553217788, CITY Al Khobar, LOYALTY MEMBER Yes. Screenshot of the CLIENTS table in datasheet view showing the new record at 3.",
+      "mark_scheme": "Award the mark for: Record entered in the CLIENTS table in datasheet view with LOYALTY MEMBER ticked.\nCheck / do not accept: Screenshot of a form: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "f11eb797-3181-459f-ae07-ff6674ab5fad",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "3",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "changes"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "4",
+      "max_marks": 1,
+      "question_text": "Sort the CLIENTS table into alphabetical order of SURNAME and RESAVE it. Screenshot of the sorted CLIENTS table showing all its records at 4.",
+      "mark_scheme": "Award the mark for: CLIENTS sorted ascending (A–Z) on SURNAME and saved: Al-Harbi first, Wilson last.\nCheck / do not accept: Sorted on another field or descending: no mark.\nExpected results: CLIENTS starts Al-Harbi, Al-Mutairi (new record), Al-Qahtani, Al-Shehri … ends Wilson.",
+      "marking": "ai",
+      "success_criteria_id": "10570466-4aca-436e-b705-76a7665cc8ee",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "table-sort",
+            "records:CLIENTS"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "4",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "5(1)",
+      "max_marks": 1,
+      "question_text": "Create a tabular form for the CLIENTS table, with all the fields, saved as CLIENTS LIST FORM. The form must have tabular format, with one record on each row.",
+      "mark_scheme": "Award the mark for: Tabular layout: all fields, headings in one row, records in rows below.\nCheck / do not accept: Columnar or datasheet form: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "704c88ed-0d71-473c-b516-4447d3646bff",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "5",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "5(2)",
+      "max_marks": 1,
+      "question_text": "Create a tabular form for the CLIENTS table, with all the fields, saved as CLIENTS LIST FORM. The form must have the title Al Noor Events – Clients in the Form Header.",
+      "mark_scheme": "Award the mark for: Title Al Noor Events – Clients in the Form Header.\nCheck / do not accept: Spelling must be exact.",
+      "marking": "ai",
+      "success_criteria_id": "c650a629-b6c0-4417-b2a2-a3255e0e9911",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "5",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "5(3)",
+      "max_marks": 1,
+      "question_text": "Create a tabular form for the CLIENTS table, with all the fields, saved as CLIENTS LIST FORM. The form must have a 2 pt border on every field heading.",
+      "mark_scheme": "Award the mark for: Every field heading label: Border Style Solid, Border Width 2 pt.\nCheck / do not accept: Some headings only, or 1 pt / 3 pt: no mark.",
+      "marking": "ai_check",
+      "success_criteria_id": "095ada86-4e23-4607-8941-7910d60c808a",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "5",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "6(1)",
+      "max_marks": 1,
+      "question_text": "Create a query on the EVENTS table only to find all Corporate events that have CATERING, where the DEPOSIT PAID is Yes and the EVENT DATE is before 01/07/2027. Show only these fields in this order: EVENT ID, CLIENT ID, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. The EVENT DATE field must not be shown in the results. SAVE the query as CORPORATE CATERING. Screenshots of the design view and the results at 6.",
+      "mark_scheme": "Award the mark for: EVENTS table only; only EVENT ID, CLIENT ID, VENUE, GUESTS shown, in this order.\nCheck / do not accept: CLIENTS table added: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "c8cbd8a6-d8ef-4a05-86cb-7a5de8f8bb98",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "6",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "6(2)",
+      "max_marks": 1,
+      "question_text": "Create a query on the EVENTS table only to find all Corporate events that have CATERING, where the DEPOSIT PAID is Yes and the EVENT DATE is before 01/07/2027. Show only these fields in this order: EVENT ID, CLIENT ID, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. The EVENT DATE field must not be shown in the results. SAVE the query as CORPORATE CATERING. Screenshots of the design view and the results at 6.",
+      "mark_scheme": "Award the mark for: EVENT TYPE criteria \"Corporate\".",
+      "marking": "ai",
+      "success_criteria_id": "2982f400-81af-4f07-8c0b-3a7798821a3e",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "6",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "6(3)",
+      "max_marks": 1,
+      "question_text": "Create a query on the EVENTS table only to find all Corporate events that have CATERING, where the DEPOSIT PAID is Yes and the EVENT DATE is before 01/07/2027. Show only these fields in this order: EVENT ID, CLIENT ID, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. The EVENT DATE field must not be shown in the results. SAVE the query as CORPORATE CATERING. Screenshots of the design view and the results at 6.",
+      "mark_scheme": "Award the mark for: CATERING Yes and DEPOSIT PAID Yes (accept True, -1), on the same row.\nCheck / do not accept: Either missing (gives 7 or more): no mark.",
+      "marking": "ai",
+      "success_criteria_id": "323a5dab-9f97-4592-8bc9-eb9eebc92249",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "6",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "6(4)",
+      "max_marks": 1,
+      "question_text": "Create a query on the EVENTS table only to find all Corporate events that have CATERING, where the DEPOSIT PAID is Yes and the EVENT DATE is before 01/07/2027. Show only these fields in this order: EVENT ID, CLIENT ID, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. The EVENT DATE field must not be shown in the results. SAVE the query as CORPORATE CATERING. Screenshots of the design view and the results at 6.",
+      "mark_scheme": "Award the mark for: EVENT DATE criteria <#01/07/2027# (accept <=#30/06/2027#).\nCheck / do not accept: No date criterion (9 records): no mark.",
+      "marking": "ai",
+      "success_criteria_id": "0e7e159d-14a8-4345-9375-6a5c3023b5dc",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "6",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "6(5)",
+      "max_marks": 1,
+      "question_text": "Create a query on the EVENTS table only to find all Corporate events that have CATERING, where the DEPOSIT PAID is Yes and the EVENT DATE is before 01/07/2027. Show only these fields in this order: EVENT ID, CLIENT ID, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. The EVENT DATE field must not be shown in the results. SAVE the query as CORPORATE CATERING. Screenshots of the design view and the results at 6.",
+      "mark_scheme": "Award the mark for: Sort Ascending on EVENT DATE (C008 Hotel Ballroom first, C014 Garden last).\nExpected results: Query 1 (CORPORATE CATERING, with the Task 2 record): 6 records, 4 columns only – (new) C008 Hotel Ballroom 60; 6 C017 Hotel Ballroom 80; 17 C006 Beach Tent 35; 30 C016 Home 250; 4 C020 Garden 80; 5 C014 Garden 35. Without the Task 2 record: 5. Without the date criterion: 9. Without DEPOSIT PAID: 7.",
+      "marking": "ai",
+      "success_criteria_id": "08e3dd90-c65d-401b-a687-181ac10f0f8e",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "6",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "6(6)",
+      "max_marks": 1,
+      "question_text": "Create a query on the EVENTS table only to find all Corporate events that have CATERING, where the DEPOSIT PAID is Yes and the EVENT DATE is before 01/07/2027. Show only these fields in this order: EVENT ID, CLIENT ID, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. The EVENT DATE field must not be shown in the results. SAVE the query as CORPORATE CATERING. Screenshots of the design view and the results at 6.",
+      "mark_scheme": "Award the mark for: EVENT DATE Show box unticked – results show 4 columns only.",
+      "marking": "ai",
+      "success_criteria_id": "c8cbd8a6-d8ef-4a05-86cb-7a5de8f8bb98",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "6",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "7(1)",
+      "max_marks": 1,
+      "question_text": "Create a query on the CLIENTS and EVENTS tables to find all Wedding or Engagement events in 2027 with 100 or more GUESTS. Show only these fields in this order: FIRST NAME, SURNAME, CONTACT NUMBER, EVENT TYPE, EVENT DATE, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. SAVE the query as LARGE CELEBRATIONS. Screenshots of the design view and the results at 7.",
+      "mark_scheme": "Award the mark for: CLIENTS and EVENTS tables; only the 7 fields shown, in this order.\nExpected results: Query 2 (LARGE CELEBRATIONS): 5 records – Raj Taylor Wedding 27/01/2027 Rooftop 250; Raj Taylor Engagement 04/02/2027 Garden 200; Hana Haddad Engagement 27/06/2027 Rooftop 100; Raj Taylor Wedding 29/11/2027 Hotel Ballroom 120; Hana Saleh Wedding 12/12/2027 Beach Tent 200. With >100 instead of >=100: 4. Without the 2027 criterion: 7.",
+      "marking": "ai",
+      "success_criteria_id": "74267306-e2f5-4e5e-a599-cf2d54c09b97",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "7",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "7(2)",
+      "max_marks": 1,
+      "question_text": "Create a query on the CLIENTS and EVENTS tables to find all Wedding or Engagement events in 2027 with 100 or more GUESTS. Show only these fields in this order: FIRST NAME, SURNAME, CONTACT NUMBER, EVENT TYPE, EVENT DATE, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. SAVE the query as LARGE CELEBRATIONS. Screenshots of the design view and the results at 7.",
+      "mark_scheme": "Award the mark for: EVENT TYPE \"Wedding\" Or \"Engagement\" (accept on two criteria rows).\nExpected results: Query 2 (LARGE CELEBRATIONS): 5 records – Raj Taylor Wedding 27/01/2027 Rooftop 250; Raj Taylor Engagement 04/02/2027 Garden 200; Hana Haddad Engagement 27/06/2027 Rooftop 100; Raj Taylor Wedding 29/11/2027 Hotel Ballroom 120; Hana Saleh Wedding 12/12/2027 Beach Tent 200. With >100 instead of >=100: 4. Without the 2027 criterion: 7.",
+      "marking": "ai",
+      "success_criteria_id": "e3aad225-1a5a-42cf-a25a-53c9b07d1791",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "7",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "7(3)",
+      "max_marks": 1,
+      "question_text": "Create a query on the CLIENTS and EVENTS tables to find all Wedding or Engagement events in 2027 with 100 or more GUESTS. Show only these fields in this order: FIRST NAME, SURNAME, CONTACT NUMBER, EVENT TYPE, EVENT DATE, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. SAVE the query as LARGE CELEBRATIONS. Screenshots of the design view and the results at 7.",
+      "mark_scheme": "Award the mark for: GUESTS criteria >=100.\nCheck / do not accept: >100 (4 records): no mark.\nExpected results: Query 2 (LARGE CELEBRATIONS): 5 records – Raj Taylor Wedding 27/01/2027 Rooftop 250; Raj Taylor Engagement 04/02/2027 Garden 200; Hana Haddad Engagement 27/06/2027 Rooftop 100; Raj Taylor Wedding 29/11/2027 Hotel Ballroom 120; Hana Saleh Wedding 12/12/2027 Beach Tent 200. With >100 instead of >=100: 4. Without the 2027 criterion: 7.",
+      "marking": "ai",
+      "success_criteria_id": "323a5dab-9f97-4592-8bc9-eb9eebc92249",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "7",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "7(4)",
+      "max_marks": 1,
+      "question_text": "Create a query on the CLIENTS and EVENTS tables to find all Wedding or Engagement events in 2027 with 100 or more GUESTS. Show only these fields in this order: FIRST NAME, SURNAME, CONTACT NUMBER, EVENT TYPE, EVENT DATE, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. SAVE the query as LARGE CELEBRATIONS. Screenshots of the design view and the results at 7.",
+      "mark_scheme": "Award the mark for: EVENT DATE Between #01/01/2027# And #31/12/2027# (accept Year([EVENT DATE])=2027).\nCheck / do not accept: No date criterion (7 records): no mark.\nExpected results: Query 2 (LARGE CELEBRATIONS): 5 records – Raj Taylor Wedding 27/01/2027 Rooftop 250; Raj Taylor Engagement 04/02/2027 Garden 200; Hana Haddad Engagement 27/06/2027 Rooftop 100; Raj Taylor Wedding 29/11/2027 Hotel Ballroom 120; Hana Saleh Wedding 12/12/2027 Beach Tent 200. With >100 instead of >=100: 4. Without the 2027 criterion: 7.",
+      "marking": "ai",
+      "success_criteria_id": "0e7e159d-14a8-4345-9375-6a5c3023b5dc",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "7",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "7(5)",
+      "max_marks": 1,
+      "question_text": "Create a query on the CLIENTS and EVENTS tables to find all Wedding or Engagement events in 2027 with 100 or more GUESTS. Show only these fields in this order: FIRST NAME, SURNAME, CONTACT NUMBER, EVENT TYPE, EVENT DATE, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. SAVE the query as LARGE CELEBRATIONS. Screenshots of the design view and the results at 7.",
+      "mark_scheme": "Award the mark for: If the Or row is used, the GUESTS and date criteria are repeated on both rows (5 records).\nExpected results: Query 2 (LARGE CELEBRATIONS): 5 records – Raj Taylor Wedding 27/01/2027 Rooftop 250; Raj Taylor Engagement 04/02/2027 Garden 200; Hana Haddad Engagement 27/06/2027 Rooftop 100; Raj Taylor Wedding 29/11/2027 Hotel Ballroom 120; Hana Saleh Wedding 12/12/2027 Beach Tent 200. With >100 instead of >=100: 4. Without the 2027 criterion: 7.",
+      "marking": "ai",
+      "success_criteria_id": "e3aad225-1a5a-42cf-a25a-53c9b07d1791",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "7",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "7(6)",
+      "max_marks": 1,
+      "question_text": "Create a query on the CLIENTS and EVENTS tables to find all Wedding or Engagement events in 2027 with 100 or more GUESTS. Show only these fields in this order: FIRST NAME, SURNAME, CONTACT NUMBER, EVENT TYPE, EVENT DATE, VENUE, GUESTS. Sort the results in ascending order of EVENT DATE. SAVE the query as LARGE CELEBRATIONS. Screenshots of the design view and the results at 7.",
+      "mark_scheme": "Award the mark for: Sort Ascending on EVENT DATE (Raj Taylor 27/01/2027 first).\nExpected results: Query 2 (LARGE CELEBRATIONS): 5 records – Raj Taylor Wedding 27/01/2027 Rooftop 250; Raj Taylor Engagement 04/02/2027 Garden 200; Hana Haddad Engagement 27/06/2027 Rooftop 100; Raj Taylor Wedding 29/11/2027 Hotel Ballroom 120; Hana Saleh Wedding 12/12/2027 Beach Tent 200. With >100 instead of >=100: 4. Without the 2027 criterion: 7.",
+      "marking": "ai",
+      "success_criteria_id": "08e3dd90-c65d-401b-a687-181ac10f0f8e",
+      "evidence": [
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "queries"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "7",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "8a",
+      "max_marks": 1,
+      "question_text": "Create a report from the LARGE CELEBRATIONS query, saved as LARGE CELEBRATIONS REPORT. The report must have the title Large Celebrations 2027 in a serif font in the Report Header.",
+      "mark_scheme": "Award the mark for: Title Large Celebrations 2027 in the Report Header, in a serif font.\nCheck / do not accept: Sans serif title or spelling error: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "a4e0ac97-3659-480a-a1ec-9ce788bee19c",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "8",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "8b",
+      "max_marks": 1,
+      "question_text": "Create a report from the LARGE CELEBRATIONS query, saved as LARGE CELEBRATIONS REPORT. The report must have the logo AL NOOR LOGO in the top left of the Report Header.",
+      "mark_scheme": "Award the mark for: Logo in the top left of the Report Header.\nCheck / do not accept: Logo elsewhere: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "a4e0ac97-3659-480a-a1ec-9ce788bee19c",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "8",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "8c",
+      "max_marks": 1,
+      "question_text": "Create a report from the LARGE CELEBRATIONS query, saved as LARGE CELEBRATIONS REPORT. The report must have the image BALLOONS in the top right of the Report Header.",
+      "mark_scheme": "Award the mark for: Image BALLOONS in the top right of the Report Header.\nCheck / do not accept: The logo used twice: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "a4e0ac97-3659-480a-a1ec-9ce788bee19c",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "8",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "8d",
+      "max_marks": 1,
+      "question_text": "Create a report from the LARGE CELEBRATIONS query, saved as LARGE CELEBRATIONS REPORT. The report must show the company name Al Noor Events in the Report Header.",
+      "mark_scheme": "Award the mark for: Al Noor Events shown in the Report Header (as well as the title).\nCheck / do not accept: Company name only in the footer: no mark here.",
+      "marking": "ai",
+      "success_criteria_id": "bcd718ab-7e2c-41ee-8ead-27dbf902129d",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "8",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "8e",
+      "max_marks": 1,
+      "question_text": "Create a report from the LARGE CELEBRATIONS query, saved as LARGE CELEBRATIONS REPORT. The report must show only the fields from the query, in the same order, in tabular format and landscape orientation.",
+      "mark_scheme": "Award the mark for: Only the 7 query fields, in query order, tabular, landscape.\nCheck / do not accept: Extra fields, columnar, or wrong orientation: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "66fa8842-1a5a-4a22-a6d3-cdff5520b197",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "8",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "8f",
+      "max_marks": 1,
+      "question_text": "Create a report from the LARGE CELEBRATIONS query, saved as LARGE CELEBRATIONS REPORT. The report must show the records in ascending order of EVENT DATE.",
+      "mark_scheme": "Award the mark for: Records in ascending order of EVENT DATE.\nCheck / do not accept: Descending: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "66fa8842-1a5a-4a22-a6d3-cdff5520b197",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "8",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "8g",
+      "max_marks": 1,
+      "question_text": "Create a report from the LARGE CELEBRATIONS query, saved as LARGE CELEBRATIONS REPORT. The report must have field headings in a serif font.",
+      "mark_scheme": "Award the mark for: Field heading labels in a serif font.\nCheck / do not accept: Some headings only: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "b85a2d6a-7ca0-409b-855a-d6918f153a73",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "8",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "8h",
+      "max_marks": 1,
+      "question_text": "Create a report from the LARGE CELEBRATIONS query, saved as LARGE CELEBRATIONS REPORT. The report must have all data left-aligned.",
+      "mark_scheme": "Award the mark for: Every text box in the Detail section Text Align = Left.\nCheck / do not accept: Numbers/dates still right-aligned: no mark.",
+      "marking": "ai_check",
+      "success_criteria_id": "b85a2d6a-7ca0-409b-855a-d6918f153a73",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "8",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "8i",
+      "max_marks": 1,
+      "question_text": "Create a report from the LARGE CELEBRATIONS query, saved as LARGE CELEBRATIONS REPORT. The report must show Al Noor Events, your name, candidate number and centre number in the Page Footer.",
+      "mark_scheme": "Award the mark for: Page Footer shows Al Noor Events, name, candidate number and centre number.\nCheck / do not accept: All four needed.",
+      "marking": "ai",
+      "success_criteria_id": "bcd718ab-7e2c-41ee-8ead-27dbf902129d",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "8",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "8j",
+      "max_marks": 1,
+      "question_text": "Create a report from the LARGE CELEBRATIONS query, saved as LARGE CELEBRATIONS REPORT. The report must not show the date or page numbers.",
+      "mark_scheme": "Award the mark for: Date and page number controls removed (design view shows none).\nCheck / do not accept: Either one still present: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "bcd718ab-7e2c-41ee-8ead-27dbf902129d",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "8",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "8k",
+      "max_marks": 1,
+      "question_text": "Create a report from the LARGE CELEBRATIONS query, saved as LARGE CELEBRATIONS REPORT. The report must show all field headings and data in full and fit on one side of A4.",
+      "mark_scheme": "Award the mark for: Print view: no truncated headings or data (no #####), whole report on one side of A4.\nCheck / do not accept: Second page (even blank): no mark.",
+      "marking": "ai",
+      "success_criteria_id": "df7eed26-738c-4de7-a422-6d3816f01444",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "8",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "9(1)",
+      "max_marks": 1,
+      "question_text": "Create a report from the CORPORATE CATERING query, saved as CORPORATE CATERING REPORT. The report must be in columnar format, with each record's fields listed one under another.",
+      "mark_scheme": "Award the mark for: Columnar layout: label and value on each line, one record after another.\nCheck / do not accept: Tabular layout: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "df7eed26-738c-4de7-a422-6d3816f01444",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "9",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "9(2)",
+      "max_marks": 1,
+      "question_text": "Create a report from the CORPORATE CATERING query, saved as CORPORATE CATERING REPORT. The report must have the title Corporate Events with Catering in the Report Header.",
+      "mark_scheme": "Award the mark for: Title Corporate Events with Catering in the Report Header.\nCheck / do not accept: Spelling must be exact.",
+      "marking": "ai",
+      "success_criteria_id": "a4e0ac97-3659-480a-a1ec-9ce788bee19c",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "9",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "9(3)",
+      "max_marks": 1,
+      "question_text": "Create a report from the CORPORATE CATERING query, saved as CORPORATE CATERING REPORT. The report must show only the fields from the query, with the records in the same order as the query (earliest event first).",
+      "mark_scheme": "Award the mark for: Only the 4 query fields; records C008 Hotel Ballroom first, C014 Garden last.\nCheck / do not accept: Hidden sort field shown: no mark.\nExpected results: Query 1 (CORPORATE CATERING, with the Task 2 record): 6 records, 4 columns only – (new) C008 Hotel Ballroom 60; 6 C017 Hotel Ballroom 80; 17 C006 Beach Tent 35; 30 C016 Home 250; 4 C020 Garden 80; 5 C014 Garden 35. Without the Task 2 record: 5. Without the date criterion: 9. Without DEPOSIT PAID: 7.",
+      "marking": "ai",
+      "success_criteria_id": "66fa8842-1a5a-4a22-a6d3-cdff5520b197",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "9",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "database",
+          "slot": "database",
+          "sections": [
+            "objects",
+            "queries"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "B1(a)",
+      "max_marks": 1,
+      "question_text": "CLIENT ID is the primary key of the CLIENTS table. State what is meant by a primary key.",
+      "mark_scheme": "Award the mark for: A field that uniquely identifies each record (no two records have the same value).\nCheck / do not accept: A \"key field\" with no explanation: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "b13db168-9626-44b4-ae80-d866ddb9e082",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B1",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B1(b)",
+      "max_marks": 1,
+      "question_text": "CLIENT ID is the primary key of the CLIENTS table. Identify the foreign key in the EVENTS table.",
+      "mark_scheme": "Award the mark for: CLIENT ID.",
+      "marking": "ai",
+      "success_criteria_id": "be3edbdf-f982-4622-be5a-4778356cc808",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B1",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B2(1)",
+      "max_marks": 1,
+      "question_text": "State the type of relationship between the CLIENTS table and the EVENTS table. Explain your answer.",
+      "mark_scheme": "Award the mark for: One-to-many.\nCheck / do not accept: Many-to-one only if the explanation is correct.",
+      "marking": "ai",
+      "success_criteria_id": "bd7d5482-c3e7-43c0-973e-2487d69bc5fb",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B2",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B2(2)",
+      "max_marks": 1,
+      "question_text": "State the type of relationship between the CLIENTS table and the EVENTS table. Explain your answer.",
+      "mark_scheme": "Award the mark for: One client can book many events, but each event is booked by only one client.",
+      "marking": "ai",
+      "success_criteria_id": "bd7d5482-c3e7-43c0-973e-2487d69bc5fb",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B2",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B3(1)",
+      "max_marks": 1,
+      "question_text": "Explain one advantage of storing this data in two linked tables rather than in one table.",
+      "mark_scheme": "Award the mark for: Data is stored once / not repeated (less redundancy), e.g. a client's name and contact number are stored once, not with every event.",
+      "marking": "ai",
+      "success_criteria_id": "8f24f939-eb30-487f-a498-ac188793cb1a",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B3",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B3(2)",
+      "max_marks": 1,
+      "question_text": "Explain one advantage of storing this data in two linked tables rather than in one table.",
+      "mark_scheme": "Award the mark for: So it is changed in only one place / fewer inconsistencies / less storage space.",
+      "marking": "ai",
+      "success_criteria_id": "8f24f939-eb30-487f-a498-ac188793cb1a",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B3",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B4(a)(1)",
+      "max_marks": 1,
+      "question_text": "Referential integrity is enforced in this database. Explain why referential integrity is enforced between the CLIENTS table and the EVENTS table.",
+      "mark_scheme": "Award the mark for: An event cannot be entered for a CLIENT ID that does not exist in CLIENTS (or a client with events cannot be deleted).",
+      "marking": "ai",
+      "success_criteria_id": "79f1a663-5290-4f1d-95a4-14073d73cfaf",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B4",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B4(a)(2)",
+      "max_marks": 1,
+      "question_text": "Referential integrity is enforced in this database. Explain why referential integrity is enforced between the CLIENTS table and the EVENTS table.",
+      "mark_scheme": "Award the mark for: This stops records that are not linked (orphan records) / reduces data entry errors.",
+      "marking": "ai",
+      "success_criteria_id": "79f1a663-5290-4f1d-95a4-14073d73cfaf",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B4",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B4(b)",
+      "max_marks": 1,
+      "question_text": "Referential integrity is enforced in this database. State which table must have its data entered first.",
+      "mark_scheme": "Award the mark for: CLIENTS.",
+      "marking": "ai",
+      "success_criteria_id": "79f1a663-5290-4f1d-95a4-14073d73cfaf",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B4",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B5(a)",
+      "max_marks": 1,
+      "question_text": "State the data type of the LOYALTY MEMBER field in the CLIENTS table.",
+      "mark_scheme": "Award the mark for: Yes/No (accept Boolean).\nCheck / do not accept: Text: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "e479c520-7df9-4d69-8b9b-36f77e59dd0d",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B5",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B5(b)",
+      "max_marks": 1,
+      "question_text": "The CONTACT NUMBER field has the data type Text. Give one reason why it is not stored as a Number.",
+      "mark_scheme": "Award the mark for: A Number field would remove the leading 0 / it is not used in calculations / it may contain + or spaces.",
+      "marking": "ai",
+      "success_criteria_id": "621866d4-3103-4694-a430-d53eefd17804",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B5",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B5(c)",
+      "max_marks": 1,
+      "question_text": "Suggest a suitable field size for the CONTACT NUMBER field.",
+      "mark_scheme": "Award the mark for: 10 (accept 10–15).\nCheck / do not accept: 255, 50 or default: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "48c88a0f-b13c-4a05-896b-f4d071ea359e",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B5",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B6(a)",
+      "max_marks": 1,
+      "question_text": "Identify one field in the EVENTS table that uses a lookup list.",
+      "mark_scheme": "Award the mark for: EVENT TYPE or VENUE.",
+      "marking": "ai",
+      "success_criteria_id": "cbccdf1f-dbfc-4595-9d09-d9b5844a916c",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B6",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B6(b)(1)",
+      "max_marks": 1,
+      "question_text": "The EVENT TYPE lookup list has Limit to List set to Yes. Explain one benefit of this.",
+      "mark_scheme": "Award the mark for: Only values in the list can be entered.",
+      "marking": "ai",
+      "success_criteria_id": "1d494164-2906-4e73-b139-d1bb3e37f9b8",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B6",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B6(b)(2)",
+      "max_marks": 1,
+      "question_text": "The EVENT TYPE lookup list has Limit to List set to Yes. Explain one benefit of this.",
+      "mark_scheme": "Award the mark for: So the data is consistent / spelt the same, and a query for e.g. \"Wedding\" finds every wedding.",
+      "marking": "ai",
+      "success_criteria_id": "1d494164-2906-4e73-b139-d1bb3e37f9b8",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B6",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B7(a)",
+      "max_marks": 1,
+      "question_text": "A POSTCODE field is added to the CLIENTS table. Name the most suitable validation check for this field.",
+      "mark_scheme": "Award the mark for: Format check (accept input mask).\nCheck / do not accept: Length check: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "be7e0b99-674f-420f-9527-4ccb1871a59b",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B7",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B7(b)",
+      "max_marks": 1,
+      "question_text": "Name the validation check that makes sure the CONTACT NUMBER field cannot be left blank.",
+      "mark_scheme": "Award the mark for: Presence check (accept Required = Yes).",
+      "marking": "ai",
+      "success_criteria_id": "be7e0b99-674f-420f-9527-4ccb1871a59b",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B7",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B7(c)(1)",
+      "max_marks": 1,
+      "question_text": "The number of GUESTS must be between 10 and 500. Name the validation check that should be used and write a suitable validation rule.",
+      "mark_scheme": "Award the mark for: Range check.",
+      "marking": "ai",
+      "success_criteria_id": "be7e0b99-674f-420f-9527-4ccb1871a59b",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B7",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B7(c)(2)",
+      "max_marks": 1,
+      "question_text": "The number of GUESTS must be between 10 and 500. Name the validation check that should be used and write a suitable validation rule.",
+      "mark_scheme": "Award the mark for: >=10 And <=500 (accept Between 10 And 500).\nCheck / do not accept: Only one limit: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "b47bfb0d-0761-4248-b51d-548edcbf2c61",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B7",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B7(d)",
+      "max_marks": 1,
+      "question_text": "State one suitable validation check for the EVENT DATE field.",
+      "mark_scheme": "Award the mark for: Type check (must be a valid date) / range check (e.g. >=Date()) / format check (dd/mm/yyyy).\nCheck / do not accept: Presence check alone: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "cbccdf1f-dbfc-4595-9d09-d9b5844a916c",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B7",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B8(a)",
+      "max_marks": 1,
+      "question_text": "State why a query may need a logical operator such as AND or OR.",
+      "mark_scheme": "Award the mark for: To search using more than one criterion / to combine conditions.",
+      "marking": "ai",
+      "success_criteria_id": "7518b215-9a96-4cf6-bb7a-e9233d518bbe",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B8",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B8(b)(1)",
+      "max_marks": 1,
+      "question_text": "Explain one reason why Like \"*Tent*\" would be used in a search on the VENUE field.",
+      "mark_scheme": "Award the mark for: The * wildcard stands for any characters / finds partial matches.",
+      "marking": "ai",
+      "success_criteria_id": "c422bb83-d049-456e-86ca-17442daa05af",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B8",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "B8(b)(2)",
+      "max_marks": 1,
+      "question_text": "Explain one reason why Like \"*Tent*\" would be used in a search on the VENUE field.",
+      "mark_scheme": "Award the mark for: It finds every venue that contains the word Tent (e.g. Beach Tent) without knowing the full venue name.",
+      "marking": "ai",
+      "success_criteria_id": "c422bb83-d049-456e-86ca-17442daa05af",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "B8",
+          "want": "text",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

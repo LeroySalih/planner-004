@@ -30,16 +30,18 @@ import {
 import { withTelemetry } from "@/lib/telemetry";
 import {
   isLegacyActivityType,
-  isPowerPointAssessmentType,
+  isPracticalAssessmentType,
   isQuestionMarkedActivityType,
   isScorableActivityType,
   legacyActivityTypeMessage,
+  normalizeActivityType,
 } from "@/dino.config";
 import {
-  defaultPowerPointAssessmentBody,
-  powerPointBodyProblem,
+  defaultPracticalBody,
+  practicalBodyProblem,
 } from "@/lib/powerpoint-assessment/evidence-spec";
 import { applyUploadSlotChange } from "@/lib/powerpoint-assessment/slot-changes";
+import type { PracticalAssessmentType } from "@/lib/practical-assessment/types";
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner";
 import { requireRole } from "@/lib/auth";
 
@@ -47,9 +49,9 @@ import { requireRole } from "@/lib/auth";
 const PAPER_OWNED_BODY_KEYS = ["questionPaperPath", "markSchemePath", "foldedFromAssessmentIds"] as const;
 
 /**
- * An assessment paper's or PowerPoint assessment's body as a body save leaves
+ * An assessment paper's or practical assessment's body as a body save leaves
  * it: the stored body with the given one over it, the paper-owned keys as
- * stored (set or absent), and (a PowerPoint assessment) a setting sent as
+ * stored (set or absent), and (a practical assessment) a setting sent as
  * null cleared.
  */
 function mergeQuestionMarkedBody(type: string, storedBody: unknown, given: Record<string, unknown>) {
@@ -59,7 +61,7 @@ function mergeQuestionMarkedBody(type: string, storedBody: unknown, given: Recor
     if (stored[key] !== undefined) next[key] = stored[key];
     else delete next[key];
   }
-  if (isPowerPointAssessmentType(type)) {
+  if (isPracticalAssessmentType(type)) {
     for (const [key, value] of Object.entries(next)) {
       if (value === null) delete next[key];
     }
@@ -250,7 +252,7 @@ export async function createLessonActivityAction(
     return { success: false, error: legacyActivityTypeMessage(payload.type), data: null };
   }
 
-  const normalizedBody = isPowerPointAssessmentType(payload.type) && payload.bodyData == null
+  const normalizedBody = isPracticalAssessmentType(payload.type) && payload.bodyData == null
     ? { success: true as const, bodyData: {} as unknown }
     : normalizeActivityBody(payload.type, payload.bodyData);
 
@@ -258,19 +260,21 @@ export async function createLessonActivityAction(
     return { success: false, error: normalizedBody.error, data: null };
   }
 
-  // A PowerPoint assessment cannot exist without its upload slots: one that
-  // arrives without any starts with the presentation alone. Its paper files
-  // are set by their upload, never by a body.
-  if (isPowerPointAssessmentType(payload.type)) {
+  // A practical assessment cannot exist without its upload slots: one that
+  // arrives without any starts with its type's default slots (a PowerPoint
+  // assessment the presentation alone). Its paper files are set by their
+  // upload, never by a body.
+  if (isPracticalAssessmentType(payload.type)) {
+    const practicalType = normalizeActivityType(payload.type) as PracticalAssessmentType;
     const given = normalizedBody.bodyData && typeof normalizedBody.bodyData === "object" &&
         !Array.isArray(normalizedBody.bodyData)
       ? { ...(normalizedBody.bodyData as Record<string, unknown>) }
       : {};
     for (const key of PAPER_OWNED_BODY_KEYS) delete given[key];
     if (given.uploadSlots === undefined) {
-      given.uploadSlots = defaultPowerPointAssessmentBody().uploadSlots;
+      given.uploadSlots = defaultPracticalBody(practicalType).uploadSlots;
     }
-    const problem = powerPointBodyProblem(given);
+    const problem = practicalBodyProblem(given, practicalType);
     if (problem) return { success: false, error: problem, data: null };
     normalizedBody.bodyData = given;
   }
@@ -552,8 +556,9 @@ export async function updateLessonActivityAction(
     // settings are saved from the editor and kept. The paper files and the
     // fold marker are saved by their own paths. A body saved from the editor,
     // possibly opened before an upload, neither drops nor sets them: the
-    // stored values always win. A PowerPoint assessment's editor clears a
-    // setting (the evidence template) by sending it as null. Merged here to
+    // stored values always win. A practical assessment's editor clears a
+    // setting (the evidence template, the starting database) by sending it as
+    // null. Merged here to
     // check it, and again from the locked row when it is written, so an upload
     // landing in between is kept.
     if (normalizedBody.bodyData && typeof normalizedBody.bodyData === "object") {
@@ -562,8 +567,11 @@ export async function updateLessonActivityAction(
     }
   }
 
-  if (isPowerPointAssessmentType(finalType) && payload.bodyData !== undefined) {
-    const problem = powerPointBodyProblem(normalizedBody.bodyData);
+  if (isPracticalAssessmentType(finalType) && payload.bodyData !== undefined) {
+    const problem = practicalBodyProblem(
+      normalizedBody.bodyData,
+      normalizeActivityType(finalType) as PracticalAssessmentType,
+    );
     if (problem) return { success: false, error: problem, data: null };
   }
 
@@ -616,7 +624,7 @@ export async function updateLessonActivityAction(
       if (givenQuestionMarkedBody && bodyIndex >= 0) {
         // Written from the row as it is now, locked: a paper or mark scheme
         // uploaded since it was read above is kept. On a PowerPoint
-        // assessment the questions' evidence names the upload slots: a slot
+        // (or database) assessment the questions' evidence names the upload slots: a slot
         // it reads cannot go or change kind, and a rename is carried into the
         // evidence and the pupils' files, all with the save.
         const given = givenQuestionMarkedBody;
@@ -630,8 +638,11 @@ export async function updateLessonActivityAction(
             const lockedBody = locked[0] ? locked[0].body_data : existing.body_data;
             const body = mergeQuestionMarkedBody(finalType, lockedBody, given);
             values[bodyIndex] = body;
-            if (isPowerPointAssessmentType(finalType)) {
-              const { errors } = await applyUploadSlotChange(client, activityId, lockedBody, body, { rename: true });
+            if (isPracticalAssessmentType(finalType)) {
+              const { errors } = await applyUploadSlotChange(client, activityId, lockedBody, body, {
+                rename: true,
+                type: normalizeActivityType(finalType) as PracticalAssessmentType,
+              });
               if (errors.length > 0) {
                 await client.query("rollback");
                 return `These upload slots no longer fit the questions' evidence: ${errors.join(" ")} Change those questions' evidence first.`;

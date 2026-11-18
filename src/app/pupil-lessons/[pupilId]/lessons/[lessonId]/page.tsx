@@ -19,9 +19,10 @@ import {
   readLessonSubmissionSummariesAction,
   getActivityFileDownloadUrlAction,
 } from "@/lib/server-updates"
-import { isAssessmentPaperType, isPowerPointAssessmentType, isScorableActivityType } from "@/dino.config"
+import { isAssessmentPaperType, isPracticalAssessmentType, isScorableActivityType } from "@/dino.config"
 import { readPupilAssessmentPaperView, type PupilAssessmentPaperView } from "@/lib/assessment-paper/pupil-feedback"
 import { readPupilPowerPointView, type PupilPowerPointView } from "@/lib/powerpoint-assessment/pupil-view"
+import { practicalTypeConfig } from "@/lib/practical-assessment/types"
 import { countsForProgress } from "@/lib/scoring/counts-for-progress"
 import { cn } from "@/lib/utils"
 import { findLessonResources } from "@/lib/lesson-resources"
@@ -1020,17 +1021,17 @@ export default async function PupilLessonFriendlyPage({
     ),
   )
 
-  // PowerPoint assessments: built for the pupil on the server, so the client
+  // Practical assessments (PowerPoint or database): built for the pupil on the server, so the client
   // never gets the activity's body (mark scheme path, upload slot setup,
   // evidence specs) or a question's mark scheme; the loader checks the lock
   // and the pupil's feedback visibility again.
   const powerPointViewMap = new Map<string, PupilPowerPointView | null>(
     await Promise.all(
       activities
-        .filter((activity) => isPowerPointAssessmentType(activity.type))
+        .filter((activity) => isPracticalAssessmentType(activity.type))
         .map(async (activity) => {
           const view = await readPupilPowerPointView(activity.activity_id, pupilId, isTeacher).catch((error) => {
-            console.error("[pupil-lessons] failed to load PowerPoint assessment", error)
+            console.error("[pupil-lessons] failed to load practical assessment", error)
             return null
           })
           return [activity.activity_id, view] as const
@@ -1097,7 +1098,7 @@ export default async function PupilLessonFriendlyPage({
   const awarded = releasedToViewer
     ? marked.reduce((sum, activity) => sum + (activityMarksMap.get(activity.activity_id)?.marksAwarded ?? 0), 0)
     : null
-  // A PowerPoint assessment has a submission from its first upload, but is
+  // A practical assessment has a submission from its first upload, but is
   // done only once it is handed in.
   const submittedIds = doneActivityIds(anySubmittedIds, powerPointHandedIn)
   const remainingWork = countableIds.filter((id) => !submittedIds.includes(id)).length
@@ -1197,7 +1198,8 @@ export default async function PupilLessonFriendlyPage({
           { variant: "task", title: activity.title || "Assessment paper", ownFeedback: true },
         )
       }
-      case "powerpoint-assessment": {
+      case "powerpoint-assessment":
+      case "database-assessment": {
         const view = powerPointViewMap.get(activity.activity_id)
         return frame(
           view ? (
@@ -1217,7 +1219,7 @@ export default async function PupilLessonFriendlyPage({
           ),
           {
             variant: "task",
-            title: activity.title || "PowerPoint assessment",
+            title: activity.title || practicalTypeConfig(activity.type).label,
             ownFeedback: true,
             pendingMarking: Boolean(view?.handedIn) && rawScore === null,
           },

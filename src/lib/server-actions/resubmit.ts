@@ -9,7 +9,7 @@ import { requireTeacherProfile } from "@/lib/auth";
 import { withTelemetry } from "@/lib/telemetry";
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
 import { setResubmitRequest } from "@/lib/server-actions/submission-attempts";
-import { isPowerPointAssessmentType } from "@/dino.config";
+import { isPracticalAssessmentType } from "@/dino.config";
 import { reopenPowerPointAssessmentForTeacher } from "@/lib/powerpoint-assessment/reopen";
 
 const RequestResubmissionInputSchema = z.object({
@@ -90,9 +90,9 @@ export async function requestResubmissionAction(
           requestedBy: teacherProfile.userId,
         });
 
-        // A handed-in PowerPoint assessment is reopened, so the pupil can
+        // A handed-in practical assessment (PowerPoint or database) is reopened, so the pupil can
         // change their files and hand in again; handing in clears the request.
-        if (isPowerPointAssessmentType(activityRows[0].type)) {
+        if (isPracticalAssessmentType(activityRows[0].type)) {
           await reopenPowerPointAssessmentForTeacher(
             parsed.data.activityId,
             parsed.data.pupilId,

@@ -3,7 +3,9 @@ import "server-only"
 import { createHash, randomUUID } from "node:crypto"
 
 import { query, withDbClient } from "@/lib/db"
-import { isPowerPointAssessmentType } from "@/dino.config"
+import { PRACTICAL_ASSESSMENT_TYPES, isPracticalAssessmentType } from "@/dino.config"
+import { checkAccessDatabase } from "@/lib/accdb/check"
+import { UnreadableDatabaseError } from "@/lib/accdb/errors"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import {
   ASSESSMENT_SCRIPTS_BUCKET,
@@ -32,32 +34,34 @@ import { clearResubmitRequest } from "@/lib/server-actions/submission-attempts"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { joinLabels } from "@/lib/utils"
 import {
-  PowerPointAssessmentActivityBodySchema,
-  type PowerPointAssessmentActivityBody,
-  type PowerPointUploadSlot,
-  type PowerPointUploadSlotKind,
-} from "@/types"
+  practicalTypeConfig,
+  type PracticalAssessmentType,
+} from "@/lib/practical-assessment/types"
+import type { PracticalUploadSlot, PracticalUploadSlotKind } from "@/types"
 
-// The files of a PowerPoint assessment.
+// The files of a practical assessment: every practical type (PowerPoint and
+// database assessments, src/lib/practical-assessment/types.ts), not only
+// PowerPoint, despite this module's folder.
 //
 // A pupil's files, one per upload slot, in the assessment-scripts bucket
 // (never `lessons`, where any signed-in user can read any path):
 //
-//   {activityId}/practical/{fileId}/original.{pptx|pdf|docx}   teacher; the pupil who handed it in
-//   {activityId}/practical/{fileId}/evidence/...               teacher only (what the reader extracted)
+//   {activityId}/practical/{fileId}/original.{pptx|accdb|pdf|docx}   teacher; the pupil who handed it in
+//   {activityId}/practical/{fileId}/evidence/...                     teacher only (what the reader extracted)
 //
-// The images the task supplies, in the lessons bucket so every pupil can
-// download them, fingerprinted so the presentation reader can recognise them
-// in a pupil's slides:
+// The images a PowerPoint task supplies, in the lessons bucket so every pupil
+// can download them, fingerprinted so the presentation reader can recognise
+// them in a pupil's slides:
 //
 //   lessons/{lessonId}/activities/{activityId}/images/{uuid}.{ext}
 //
 // (a generated name; the teacher's file name is kept only in the row).
 //
 // A file is checked from its bytes, not its declared type: a presentation
-// slot takes a .pptx, a pdf slot a PDF, a docx slot a .docx. Old binary
-// files (.ppt, .doc) and password-protected ones are refused with the Office
-// reader's own message, written for the pupil.
+// slot takes a .pptx, a database slot an .accdb, a pdf slot a PDF, a docx
+// slot a .docx. Old binary files (.ppt, .doc, .mdb), lock files and
+// password-protected ones are refused with the reader's own message, written
+// for the pupil.
 //
 // Marking starts when the pupil hands in. After that a pupil cannot change
 // their files; a teacher can, which clears what was marked from the old file
@@ -77,11 +81,12 @@ export const LESSONS_BUCKET = "lessons"
 /** Seconds a re-queue after a replacement waits, so several replacements in a row are read once. */
 export const REPLACEMENT_REQUEUE_DELAY_SECONDS = 120
 
-const EXTENSIONS: Record<PowerPointUploadSlotKind, string> = { pptx: "pptx", pdf: "pdf", docx: "docx" }
-const MIME_TYPES: Record<PowerPointUploadSlotKind, string> = {
+const EXTENSIONS: Record<PracticalUploadSlotKind, string> = { pptx: "pptx", pdf: "pdf", docx: "docx", accdb: "accdb" }
+const MIME_TYPES: Record<PracticalUploadSlotKind, string> = {
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  accdb: "application/vnd.ms-access",
 }
 
 type SuppliedImageKind = "png" | "jpeg" | "gif" | "webp"
@@ -117,32 +122,53 @@ function extensionOf(fileName: string) {
   return dot === -1 ? "" : base.slice(dot + 1).toLowerCase()
 }
 
-type PowerPointActivity = {
+type PracticalActivity = {
   activityId: string
   lessonId: string
-  body: PowerPointAssessmentActivityBody | null
+  type: PracticalAssessmentType
+  /** The body as its type's schema reads it; null when it does not parse. */
+  body: { uploadSlots: PracticalUploadSlot[] } | null
 }
 
-async function readPowerPointActivity(activityId: string): Promise<PowerPointActivity> {
+/**
+ * A practical assessment activity, its body parsed with its type's schema.
+ * `only` limits it to one type (supplied images are PowerPoint's alone).
+ */
+async function readPracticalActivity(
+  activityId: string,
+  options?: { only?: PracticalAssessmentType },
+): Promise<PracticalActivity> {
   const { rows } = await query<{ activity_id: string; lesson_id: string; type: string | null; body_data: unknown }>(
     "select activity_id, lesson_id, type, body_data from activities where activity_id = $1",
     [activityId],
   )
   const row = rows[0]
   if (!row) throw new Error(`Activity ${activityId} not found.`)
-  if (!isPowerPointAssessmentType(row.type)) throw new Error(`Activity ${activityId} is not a PowerPoint assessment.`)
-  const parsed = PowerPointAssessmentActivityBodySchema.safeParse(row.body_data ?? {})
-  return { activityId: row.activity_id, lessonId: row.lesson_id, body: parsed.success ? parsed.data : null }
+  if (options?.only) {
+    if (!isPracticalAssessmentType(row.type) || practicalTypeConfig(row.type).type !== options.only) {
+      throw new Error(`Activity ${activityId} is not a ${practicalTypeConfig(options.only).labelLower}.`)
+    }
+  } else if (!isPracticalAssessmentType(row.type)) {
+    throw new Error(`Activity ${activityId} is not a practical assessment.`)
+  }
+  const config = practicalTypeConfig(row.type)
+  const parsed = config.bodySchema.safeParse(row.body_data ?? {})
+  return {
+    activityId: row.activity_id,
+    lessonId: row.lesson_id,
+    type: config.type,
+    body: parsed.success ? (parsed.data as { uploadSlots: PracticalUploadSlot[] }) : null,
+  }
 }
 
-function slotsOf(activity: PowerPointActivity): PowerPointUploadSlot[] {
+function slotsOf(activity: PracticalActivity): PracticalUploadSlot[] {
   if (!activity.body) {
-    throw new PracticalFileRefusal("This PowerPoint assessment has no upload slots set up; ask your teacher.")
+    throw new PracticalFileRefusal(`This ${practicalTypeConfig(activity.type).labelLower} has no upload slots set up; ask your teacher.`)
   }
   return activity.body.uploadSlots
 }
 
-function findSlot(activity: PowerPointActivity, slotKey: string): PowerPointUploadSlot {
+function findSlot(activity: PracticalActivity, slotKey: string): PracticalUploadSlot {
   const slot = slotsOf(activity).find((s) => s.key === slotKey)
   if (!slot) throw new PracticalFileRefusal(`This assessment has no upload slot "${slotKey}".`)
   return slot
@@ -150,12 +176,16 @@ function findSlot(activity: PowerPointActivity, slotKey: string): PowerPointUplo
 
 /**
  * Whether the bytes are a file this slot takes, refusing with the reader's
- * message (for the pupil) when not. A presentation and an evidence document
- * are opened, lightly, so a damaged file is refused at upload rather than
- * at marking.
+ * message (for the pupil) when not. A presentation, a database and an
+ * evidence document are opened, lightly, so a damaged file is refused at
+ * upload rather than at marking.
  */
-export async function checkSlotFile(kind: PowerPointUploadSlotKind, bytes: Buffer, originalName: string): Promise<void> {
+export async function checkSlotFile(kind: PracticalUploadSlotKind, bytes: Buffer, originalName: string): Promise<void> {
   try {
+    if (kind === "accdb") {
+      await checkAccessDatabase(bytes, originalName)
+      return
+    }
     if (kind === "pdf") {
       if (bytes.subarray(0, 5).toString("latin1") !== "%PDF-") throw new PracticalFileRefusal("This is not a PDF file.")
       return
@@ -172,7 +202,9 @@ export async function checkSlotFile(kind: PowerPointUploadSlotKind, bytes: Buffe
     await pkg.readXml(pkg.mainPart)
     if (extensionOf(originalName) !== "docx") throw new PracticalFileRefusal(DOCX_MESSAGES.notThisType)
   } catch (error) {
-    if (error instanceof OfficeFileError) throw new PracticalFileRefusal(error.message)
+    if (error instanceof OfficeFileError || error instanceof UnreadableDatabaseError) {
+      throw new PracticalFileRefusal(error.message)
+    }
     throw error
   }
 }
@@ -251,7 +283,7 @@ export async function practicalAssignmentIdFor(
   pupilId: string,
   groupAssignmentId?: string | null,
 ): Promise<string> {
-  const { lessonId } = await readPowerPointActivity(activityId)
+  const { lessonId } = await readPracticalActivity(activityId)
   const [groupId, assignmentLessonId] = groupAssignmentId?.split("__") ?? []
   if (groupId && assignmentLessonId === lessonId) {
     const { rows } = await query("select 1 from group_membership where group_id = $1 and user_id = $2 limit 1", [
@@ -334,7 +366,7 @@ export async function storePracticalFile(input: {
   const { activityId, pupilId, slotKey, bytes } = input
   const originalName = (input.originalName.split(/[\\/]/).pop() ?? "").trim() || "file"
   assertUploadSize(bytes)
-  const activity = await readPowerPointActivity(activityId)
+  const activity = await readPracticalActivity(activityId)
   const slot = findSlot(activity, slotKey)
   await checkSlotFile(slot.kind, bytes, originalName)
   await assertPupilSitsAssessment(activityId, pupilId)
@@ -441,7 +473,7 @@ export async function removePracticalFile(input: {
   groupAssignmentId?: string | null
 }): Promise<{ removed: boolean; requeued: boolean }> {
   const { activityId, pupilId, slotKey } = input
-  const activity = await readPowerPointActivity(activityId)
+  const activity = await readPracticalActivity(activityId)
   findSlot(activity, slotKey)
 
   const result = await withDbClient(async (client) => {
@@ -526,7 +558,7 @@ export async function readPracticalFileBytes(fileId: string): Promise<Buffer> {
 export type PracticalSlotState = {
   key: string
   label: string
-  kind: PowerPointUploadSlotKind
+  kind: PracticalUploadSlotKind
   required: boolean
   hint: string | null
   file: {
@@ -558,7 +590,7 @@ function fileUrl(storagePath: string) {
 
 /** Each upload slot and the pupil's file in it, on their latest submission. */
 export async function readPracticalSlots(activityId: string, pupilId: string): Promise<PracticalSlotsState> {
-  const activity = await readPowerPointActivity(activityId)
+  const activity = await readPracticalActivity(activityId)
   const slots = slotsOf(activity)
   const { rows } = await query<{ submission_id: string; submission_status: string | null; mark_status: string | null }>(
     `select submission_id, submission_status, mark_status from submissions
@@ -618,7 +650,7 @@ export async function handInPowerPointAssessment(
   if (!actor.isTeacher && actor.userId !== pupilId) {
     throw new Error("You can only hand in your own work.")
   }
-  const slots = slotsOf(await readPowerPointActivity(activityId))
+  const slots = slotsOf(await readPracticalActivity(activityId))
 
   const outcome = await withDbClient(async (client) => {
     await client.query("BEGIN")
@@ -699,12 +731,12 @@ export async function reopenPowerPointAssessment(
   return { ...outcome, state: await readPracticalSlots(activityId, pupilId) }
 }
 
-/** A teacher's "Mark with AI" on PowerPoint work the pupil has not handed in. */
+/** A teacher's "Mark with AI" on practical work the pupil has not handed in. */
 export const NOT_HANDED_IN_FOR_MARKING_MESSAGE = "This pupil hasn't handed in yet."
 
 /**
  * After a teacher asked for a submission to be marked (enqueueMarkingTasks):
- * why a PowerPoint assessment's work was not sent, or null when it is waiting
+ * why a practical assessment's work was not sent, or null when it is waiting
  * to be marked, and always null for any other activity type. Work not handed
  * in is never sent; held work (a required file missing, say) gives the
  * reason recorded on it.
@@ -722,7 +754,7 @@ export async function powerPointNotQueuedReason(submissionId: string): Promise<s
     [submissionId],
   )
   const row = rows[0]
-  if (!row || !isPowerPointAssessmentType(row.type)) return null
+  if (!row || !isPracticalAssessmentType(row.type)) return null
   if (row.submission_status !== "submitted") return NOT_HANDED_IN_FOR_MARKING_MESSAGE
   if (row.mark_status === "waiting") return null
   return row.mark_error?.trim() || "Not sent for marking."
@@ -749,7 +781,7 @@ export async function listUnmarkedPowerPointSubmissions(
      )
      select l.submission_id, l.user_id
        from latest l
-       join activities a on a.activity_id = $1 and a.type = 'powerpoint-assessment'
+       join activities a on a.activity_id = $1 and a.type = any($2::text[])
       where l.submission_status = 'submitted'
         and not exists (select 1 from jsonb_array_elements(coalesce(a.body_data::jsonb -> 'uploadSlots', '[]'::jsonb)) slot
                          where coalesce((slot ->> 'required')::boolean, false)
@@ -764,7 +796,7 @@ export async function listUnmarkedPowerPointSubmissions(
                          where j.job_type in ('ai_mark', 'ai_read') and j.status in ('pending', 'processing')
                            and j.payload ->> 'submissionId' = l.submission_id)
       order by l.user_id`,
-    [activityId],
+    [activityId, [...PRACTICAL_ASSESSMENT_TYPES]],
   )
   return rows.map((row) => ({ submissionId: row.submission_id, pupilId: row.user_id }))
 }
@@ -832,7 +864,7 @@ export async function storeSuppliedImage(input: {
   if (!kind) throw new PracticalFileRefusal(`${fileName}: a supplied image must be a PNG, JPEG, GIF or WebP.`)
   const name = displayName(input.name ?? fileName.replace(/\.[^.]+$/, ""), "name")
 
-  const activity = await readPowerPointActivity(activityId)
+  const activity = await readPracticalActivity(activityId, { only: "powerpoint-assessment" })
   let print: Awaited<ReturnType<typeof fingerprintImage>>
   try {
     print = await fingerprintImage(bytes)
@@ -918,7 +950,7 @@ export async function listSuppliedImages(activityId: string): Promise<SuppliedIm
 
 /** Remove a supplied image and its stored file. */
 export async function removeSuppliedImage(activityId: string, name: string): Promise<{ removed: boolean }> {
-  await readPowerPointActivity(activityId)
+  await readPracticalActivity(activityId, { only: "powerpoint-assessment" })
   const { rows } = await query<{ storage_path: string }>(
     "delete from practical_supplied_images where activity_id = $1 and name = $2 returning storage_path",
     [activityId, name],
@@ -941,7 +973,7 @@ export async function readKnownImages(activityId: string): Promise<KnownImage[]>
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * Whether the signed-in user may open a path under a PowerPoint assessment's
+ * Whether the signed-in user may open a path under a practical assessment's
  * pupil files ({activityId}/practical/...) in the assessment-scripts bucket.
  * Teachers may open everything. A pupil may open only the original of a file
  * they handed in themselves; what the reader extracted (evidence/*) is for
@@ -956,7 +988,7 @@ export async function pupilMayOpenPracticalFile(
   const segments = Array.isArray(path) ? path : path.split("/")
   const [activityId, folder, fileId, fileName, ...rest] = segments
   if (!activityId || folder !== "practical" || rest.length > 0 || !UUID_RE.test(fileId ?? "")) return false
-  if (!/^original\.(pptx|pdf|docx)$/.test(fileName ?? "")) return false
+  if (!/^original\.(pptx|pdf|docx|accdb)$/.test(fileName ?? "")) return false
   const { rows } = await query<{ lesson_id: string }>(
     `select a.lesson_id from practical_submission_files f join activities a on a.activity_id = f.activity_id
       where f.file_id = $1::uuid and f.activity_id = $2 and f.pupil_id = $3 and f.storage_path = $4`,
