@@ -10,6 +10,8 @@ import { query } from "@/lib/db"
 import { isPracticalAssessmentType } from "@/dino.config"
 import { readAssessmentFeedbackPdfData, type FeedbackPdfData } from "@/lib/assessment-paper/feedback-pdf"
 import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
+import type { QuestionOutcome } from "@/lib/assessment-paper/results"
+import { readAssessmentQuestions } from "@/lib/assessment-paper/store"
 import { AssessmentPaperClassFeedbackDocument } from "@/components/pdf/assessment-paper-feedback-document"
 
 // One class's feedback on an assessment paper in one PDF, for a teacher: a
@@ -24,18 +26,30 @@ import { AssessmentPaperClassFeedbackDocument } from "@/components/pdf/assessmen
 // their latest submission is handed in, and is "held" when marking stopped
 // with a reason (mark_status null, mark_error set): a file missing or
 // unreadable. Only handed-in pupils get feedback pages.
+//
+// After the cover, a pupil-by-question grid, then a question analysis: each
+// cover pupil's outcome on each question (full marks, some, none, or did not
+// attempt: questionOutcome in results.ts, from the same latest attempts and
+// final marks) and, per question, how many pupils had each. A pupil who has
+// not sat it (not handed in) did not attempt any question.
 
 export type ClassFeedbackStatus = "marked" | "not yet marked" | "held" | "not sat"
 
 export type ClassFeedbackRosterRow = {
   pupilName: string
   marksAwarded: number | null
+  /** marksAwarded as a whole-number percentage of the marks available; null when there is no final mark. */
+  percent: number | null
   /** The AI's marks before the teacher's changes; null when not recorded. */
   aiMarks: number | null
   /** marksAwarded - aiMarks; null when not recorded. */
   change: number | null
   status: ClassFeedbackStatus
+  /** Per question, in the order of ClassFeedbackPdfData.questions. */
+  cells: ClassFeedbackCell[]
 }
+
+export type ClassFeedbackCell = { outcome: QuestionOutcome; awarded: number | null }
 
 export type ClassFeedbackPdfData = {
   paperTitle: string
@@ -50,8 +64,23 @@ export type ClassFeedbackPdfData = {
   roster: ClassFeedbackRosterRow[]
   /** Pupils with an AI mark on record, how many of them the teacher changed, and the net change. */
   changes: { comparable: number; changed: number; net: number }
+  /** Every question, in paper order, with how the roster's pupils did on it. */
+  questions: ClassQuestionAnalysisRow[]
   /** The pupils with a submission, in roster order. */
   pupils: FeedbackPdfData[]
+}
+
+export type ClassQuestionAnalysisRow = {
+  label: string
+  available: number
+  /** Over every roster pupil: the counts add up to the roster's length. */
+  counts: Record<QuestionOutcome, number>
+  /**
+   * Marks earned by every roster pupil on the question over (marks available
+   * x pupils), as a whole-number percentage; a pupil with no mark counts 0.
+   * Null when there is nothing to divide by.
+   */
+  percentCorrect: number | null
 }
 
 function slug(value: string) {
@@ -131,14 +160,39 @@ export async function readClassFeedbackPdfData(activityId: string, groupId: stri
   )
 
   const pupils: FeedbackPdfData[] = []
+  const outcomesOf = new Map<string, Map<string, ClassFeedbackCell>>()
   const changesOf = new Map<string, NonNullable<FeedbackPdfData["teacherChanges"]>>()
   for (const row of rows) {
     if (!hasSat(row, powerPoint)) continue
     const pupil = await readAssessmentFeedbackPdfData(activityId, row.pupil_id, { teacherCopy: true })
     if (pupil.teacherChanges) changesOf.set(row.pupil_id, pupil.teacherChanges)
     pupils.push({ ...pupil, className: groupId })
+    outcomesOf.set(row.pupil_id, new Map((pupil.questionOutcomes ?? []).map((o) => [o.questionId, { outcome: o.outcome, awarded: o.awarded }])))
   }
   const comparable = Array.from(changesOf.values()).filter((c) => c.recorded)
+
+  const paperQuestions = await readAssessmentQuestions(activityId)
+  const NOT_SAT: ClassFeedbackCell = { outcome: "blank", awarded: null }
+  const cellsOf = new Map(
+    rows.map((row) => [row.pupil_id, paperQuestions.map((q) => outcomesOf.get(row.pupil_id)?.get(q.questionId) ?? NOT_SAT)]),
+  )
+  const questions = paperQuestions.map((question, index) => {
+    const counts: Record<QuestionOutcome, number> = { full: 0, partial: 0, zero: 0, blank: 0 }
+    let earned = 0
+    for (const row of rows) {
+      const cell = cellsOf.get(row.pupil_id)![index]
+      counts[cell.outcome] += 1
+      earned += cell.awarded ?? 0
+    }
+    const possible = question.maxMarks * rows.length
+    return {
+      label: question.label,
+      available: question.maxMarks,
+      counts,
+      percentCorrect: possible > 0 ? Math.round((earned / possible) * 100) : null,
+    }
+  })
+  const maxMarks = Number(activity.max_marks) || 0
 
   return {
     paperTitle: paperTitleOf(activity.title),
@@ -146,19 +200,28 @@ export async function readClassFeedbackPdfData(activityId: string, groupId: stri
     className: groupId,
     unitTitle: activity.unit_title?.trim() || activity.unit_id,
     generatedOn: format(new Date(), "dd-MM-yyyy"),
-    maxMarks: Number(activity.max_marks) || 0,
-    roster: rows.map((row) => ({
-      pupilName: [row.first_name, row.last_name].filter(Boolean).join(" ") || "Pupil",
-      marksAwarded: row.marks === null ? null : Number(row.marks),
-      aiMarks: changesOf.get(row.pupil_id)?.aiMarks ?? null,
-      change: changesOf.get(row.pupil_id)?.recorded ? changesOf.get(row.pupil_id)!.change : null,
-      status: rosterStatus(row, powerPoint),
-    })),
+    maxMarks,
+    roster: rows.map((row) => {
+      const status = rosterStatus(row, powerPoint)
+      const marksAwarded = row.marks === null ? null : Number(row.marks)
+      // The cover shows no final mark for a pupil who has not sat it, so no percentage either.
+      const percent = status === "not sat" || marksAwarded === null || maxMarks <= 0 ? null : Math.round((marksAwarded / maxMarks) * 100)
+      return {
+        pupilName: [row.first_name, row.last_name].filter(Boolean).join(" ") || "Pupil",
+        marksAwarded,
+        percent,
+        aiMarks: changesOf.get(row.pupil_id)?.aiMarks ?? null,
+        change: changesOf.get(row.pupil_id)?.recorded ? changesOf.get(row.pupil_id)!.change : null,
+        status,
+        cells: cellsOf.get(row.pupil_id)!,
+      }
+    }),
     changes: {
       comparable: comparable.length,
       changed: comparable.filter((c) => c.changedQuestions.length > 0).length,
       net: comparable.reduce((sum, c) => sum + c.change, 0),
     },
+    questions,
     pupils,
   }
 }

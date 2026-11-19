@@ -474,10 +474,13 @@ PDF shows it.
 MCP `create_assessment_activity_class_feedback_link` (class, unit, activity by
 id or exact name) returns a one-time `mcp_download_links` link
 (`kind = 'assessment_class_feedback'`, migration 137) to one PDF of a class's
-feedback: a cover with every pupil's latest marks and status, then each sat
-pupil's own feedback pages, built on download
-(`src/lib/assessment-paper/class-feedback-pdf.ts`). Teacher copy: feedback
-visibility does not apply. Tests: `tests/assessment-paper/class-feedback.check.ts`.
+feedback: a cover with every pupil's latest marks, % and status; a
+pupil-by-question grid (cells coloured full / partial / attempted, no marks /
+did not attempt, with a *% correct* row); a question analysis (a 100% bar per
+question in the same four colours); then each sat pupil's own feedback pages,
+built on download (`src/lib/assessment-paper/class-feedback-pdf.ts`). The four
+categories come from one rule, `questionOutcome` (results.ts). Teacher copy:
+feedback visibility does not apply. Tests: `tests/assessment-paper/class-feedback.check.ts`.
 
 ### PowerPoint assessments
 

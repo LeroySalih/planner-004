@@ -9,7 +9,9 @@ import {
   pupilFeedbackVisible,
   readAssessmentPaperResult,
   readOverallTeacherFeedback,
+  questionOutcome,
   summariseTeacherChanges,
+  type QuestionOutcome,
   type TeacherChangeSummary,
 } from "@/lib/assessment-paper/results"
 import {
@@ -76,6 +78,8 @@ export type FeedbackPdfData = {
    * the teacher copy (the class PDF); never set on a pupil's own PDF.
    */
   teacherChanges?: TeacherChangeSummary
+  /** Each question's outcome (questionOutcome), for the class PDF's question analysis. Teacher copy only. */
+  questionOutcomes?: Array<{ questionId: string; outcome: QuestionOutcome; awarded: number | null }>
 }
 
 /**
@@ -195,7 +199,12 @@ export async function readAssessmentFeedbackPdfData(
     overallFeedback,
     folded,
     powerPoint,
-    ...(options.teacherCopy ? { teacherChanges: summariseTeacherChanges(result) } : {}),
+    ...(options.teacherCopy
+      ? {
+          teacherChanges: summariseTeacherChanges(result),
+          questionOutcomes: result.questions.map((q) => ({ questionId: q.questionId, outcome: questionOutcome(q), awarded: q.awarded })),
+        }
+      : {}),
     questions: result.questions.map((q) => {
       const marksShown = shown(q)
       const isLegacy = q.criteria.length > 0 && q.criteria.every((c) => c.provenance === "legacy")

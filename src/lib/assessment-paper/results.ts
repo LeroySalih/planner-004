@@ -634,6 +634,41 @@ export function summariseTeacherChanges(
   return { recorded, aiMarks: finalMarks - change, finalMarks, change, changedQuestions, teacherOnlyLabels }
 }
 
+/** How a pupil did on one question, for the class PDF's question analysis. Teacher copy only. */
+export type QuestionOutcome = "full" | "partial" | "zero" | "blank"
+
+/**
+ * One question's outcome on a pupil's latest attempt, from the final marks
+ * (teacher changes applied). Papers and both practical types record what the
+ * reader found per question in submission_question_answers, so one rule
+ * serves all three:
+ *
+ *   full     a mark equal to the question's marks available
+ *   partial  a mark above 0 but below the marks available
+ *   blank    no mark above 0, and the answer's status is 'blank' (the paper
+ *            reader found nothing; the practical reader found a required
+ *            source missing or no source with anything: "No answer
+ *            submitted" or the reader's reason), or there is no answer row
+ *            and no mark (not read yet). A pupil with no handed-in
+ *            submission is blank on every question (the caller decides that)
+ *   zero     anything else: an answer that scored 0, an answer not marked
+ *            yet (an unmarked question counts 0, as in the totals), or a
+ *            mark of 0 with no answer row (a teacher's mark alone, or a
+ *            paper folded from the old module, which has no answers)
+ *
+ * A teacher's mark above 0 on an answer the reader called blank counts as
+ * marks: the final mark wins.
+ */
+export function questionOutcome(
+  question: Pick<AssessmentResultQuestion, "answer" | "awarded" | "available">,
+): QuestionOutcome {
+  const awarded = question.awarded ?? 0
+  if (awarded > 0) return awarded >= question.available ? "full" : "partial"
+  if (question.answer?.status === "blank") return "blank"
+  if (!question.answer && question.awarded === null) return "blank"
+  return "zero"
+}
+
 /**
  * Whether the viewer may read this pupil's feedback: a teacher always; the
  * pupil only their own, once the lesson's feedback is visible to them, the

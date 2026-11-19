@@ -16,7 +16,9 @@ import { classFeedbackFileName, renderClassFeedbackPdf } from '@/lib/assessment-
 // class not set the lesson refused), the one-time link (single use, expiry),
 // and the class PDF: the cover's statuses from each pupil's latest attempt,
 // staff and other classes left out, and one page per pupil who sat it after
-// the cover. No model is called and no file is stored. Creates its own units,
+// the cover, the cover's % column, then the pupil-by-question grid and the
+// question analysis sheet before the pupils' pages (full, partial, scored 0,
+// blank and no submission, and % correct). No model is called and no file is stored. Creates its own units,
 // lessons, activities, classes and people, and removes them. Never prints names.
 // Run with DATABASE_URL set, where poppler is installed:
 //   npx tsx tests/assessment-paper/class-feedback.check.ts [pdf-dir]
@@ -60,9 +62,9 @@ const PAPER_TITLE = `Class feedback check ${tag}`
 
 // Last names sort Adams, Brown (Amy), Brown (Zed), Clark, Davis.
 const ADAMS = `cf-check-adams-${tag}` // marked, two attempts
-const ZED_BROWN = `cf-check-zbrown-${tag}` // held: front sheet check failed
+const ZED_BROWN = `cf-check-zbrown-${tag}` // held: front sheet check failed, nothing read
 const AMY_BROWN = `cf-check-abrown-${tag}` // not sat
-const CLARK = `cf-check-clark-${tag}` // not yet marked
+const CLARK = `cf-check-clark-${tag}` // not yet marked: question 1 blank, question 2 answered and 0
 const DAVIS = `cf-check-davis-${tag}` // not sat
 const STAFF = `cf-check-staff-${tag}` // teacher with a pupil role and a submission
 const OUTSIDER = `cf-check-outsider-${tag}` // a pupil of another class with a submission
@@ -155,9 +157,15 @@ async function main() {
 
   await setUp()
   try {
-    const [question] = await setAssessmentQuestions(PAPER, [
+    const [question, question2] = await setAssessmentQuestions(PAPER, [
       { label: '1', maxMarks: 4, questionText: 'Explain why aluminium is used.', markScheme: 'Strong (2). Light (2).', criteria: [{ successCriteriaId: A, maxMarks: 2 }, { successCriteriaId: B, maxMarks: 2 }] },
+      { label: '2', maxMarks: 2, questionText: 'Name a use of steel.', markScheme: 'Bridges (2).', criteria: [{ successCriteriaId: A, maxMarks: 2 }] },
     ])
+    const answer = (submissionId: string, questionId: string, status: string) =>
+      query(
+        "insert into submission_question_answers (submission_id, question_id, kind, transcription, status, provenance) values ($1, $2, 'text', $3, $4, 'ai')",
+        [submissionId, questionId, status === 'blank' ? null : 'An answer', status],
+      )
 
     // --- Resolution -------------------------------------------------------------
     const byId = await resolveClassFeedbackTarget({ class: GROUP, unit: UNIT, activity: PAPER })
@@ -212,13 +220,20 @@ async function main() {
     await setTeacherQuestionCriterionMark(adamsOld, question.questionId, B, 0)
     await setTeacherQuestionCriterionMark(adamsLatest, question.questionId, A, 2, 'Latest attempt comment')
     await setTeacherQuestionCriterionMark(adamsLatest, question.questionId, B, 1)
+    await setTeacherQuestionCriterionMark(adamsLatest, question2.questionId, A, 2)
+    await answer(adamsLatest, question.questionId, 'answered')
+    await answer(adamsLatest, question2.questionId, 'answered')
     await query("update submissions set mark_status = 'marked' where submission_id = any($1::text[])", [[adamsOld, adamsLatest]])
     const brown = await submit(ZED_BROWN, 1, null, null)
     await query(
       "insert into assessment_scripts (activity_id, pupil_id, submission_id, original_path, front_sheet_check) values ($1, $2, $3, 'none.pdf', 'The front sheet does not match')",
       [PAPER, ZED_BROWN, brown],
     )
-    await submit(CLARK, 1, 'marking', null)
+    const clark = await submit(CLARK, 1, 'marking', null)
+    await answer(clark, question.questionId, 'blank')
+    await answer(clark, question2.questionId, 'answered')
+    await setTeacherQuestionCriterionMark(clark, question2.questionId, A, 0)
+    await query("update submissions set mark_status = 'marking' where submission_id = $1", [clark])
     await submit(STAFF, 1, 'marked', 4)
     await submit(OUTSIDER, 1, 'marked', 4)
 
@@ -230,10 +245,10 @@ async function main() {
     check(
       'cover: every pupil of the class, sorted by last then first name, with status and latest marks',
       JSON.stringify(order) === JSON.stringify([
-        'Ann Adams|marked|3',
+        'Ann Adams|marked|5',
         'Amy Brown|not sat|-',
         'Zed Brown|held|-',
-        'Cal Clark|not yet marked|-',
+        'Cal Clark|not yet marked|0',
         'Dee Davis|not sat|-',
       ]),
       JSON.stringify(order),
@@ -241,24 +256,75 @@ async function main() {
     check('staff and other classes are left out', !order.some((r) => r.startsWith('Sam') || r.startsWith('Out')))
     check('a section for each pupil who sat it, in roster order', JSON.stringify(data.pupils.map((p) => p.pupilName)) === JSON.stringify(['Ann Adams', 'Zed Brown', 'Cal Clark']))
     check('the sections carry the class', data.pupils.every((p) => p.className === GROUP))
+    check(
+      'cover %: the final mark as a whole percentage of the marks available, none without a final mark',
+      JSON.stringify(data.roster.map((r) => r.percent)) === JSON.stringify([83, null, null, 0, null]),
+      JSON.stringify(data.roster.map((r) => r.percent)),
+    )
+    const grid = data.roster.map((r) => r.cells.map((c) => `${c.outcome}:${c.awarded ?? '-'}`).join(','))
+    check(
+      'grid cells: each cover pupil\'s outcome and mark on each question',
+      JSON.stringify(grid) === JSON.stringify([
+        'partial:3,full:2', // Adams
+        'blank:-,blank:-', // Amy Brown, no submission
+        'blank:-,blank:-', // Zed Brown, nothing read
+        'blank:-,zero:0', // Clark: blank answer, then answered and 0
+        'blank:-,blank:-', // Davis, no submission
+      ]),
+      JSON.stringify(grid),
+    )
+    check(
+      'grid % correct: marks earned over marks available times pupils',
+      JSON.stringify(data.questions.map((q) => q.percentCorrect)) === JSON.stringify([15, 20]),
+      JSON.stringify(data.questions.map((q) => q.percentCorrect)),
+    )
+    const analysis = data.questions.map((q) => `${q.label}:${q.counts.full}/${q.counts.partial}/${q.counts.zero}/${q.counts.blank}`)
+    // Q1: Adams 3/4 partial; Clark blank; Zed (nothing read) and Amy, Davis (no submission) blank.
+    // Q2: Adams 2/2 full; Clark answered and 0; the rest blank.
+    check(
+      'question analysis: full, partial, scored 0 and did not attempt over every pupil on the cover, in question order',
+      JSON.stringify(analysis) === JSON.stringify(['1:0/1/0/4', '2:1/0/1/3']),
+      JSON.stringify(analysis),
+    )
     check('the cover has the class, unit and a DD-MM-YYYY date', data.className === GROUP && data.unitTitle === `Class feedback unit ${tag}` && /^\d{2}-\d{2}-\d{4}$/.test(data.generatedOn))
 
     const file = path.join(PDF_DIR, `class-${tag}.pdf`)
     await writeFile(file, buffer)
     const info = await execFileAsync('pdfinfo', [file])
     const pages = Number.parseInt(info.stdout.match(/^Pages:\s+(\d+)/m)?.[1] ?? '0', 10)
-    check('a valid PDF: the cover plus a page per pupil who sat it', buffer.subarray(0, 5).toString() === '%PDF-' && pages === 4, String(pages))
+    check('a valid PDF: the cover, the grid, the question analysis, then a page per pupil who sat it', buffer.subarray(0, 5).toString() === '%PDF-' && pages === 6, String(pages))
     const cover = await pageText(file, 1)
-    check('cover page lists the statuses', ['Marked', 'Not sat', 'Held', 'Not yet marked'].every((s) => cover.includes(s)) && /3\s*\/\s*4/.test(cover) && cover.includes(GROUP))
+    check('cover page lists the statuses', ['Marked', 'Not sat', 'Held', 'Not yet marked'].every((s) => cover.includes(s)) && /5\s*\/\s*6/.test(cover) && cover.includes(GROUP))
+    check('cover has a % column after the final mark', /FINAL MARK\s+%\s+CHANGE/.test(cover) && /5\s*\/\s*6\s+83%/.test(cover) && /0\s*\/\s*6\s+0%/.test(cover), cover)
     // Marked by the teacher alone: no AI mark on record to compare with.
     check('cover has AI mark, final mark and change columns, — where not recorded', ['AI MARK', 'FINAL MARK', 'CHANGE'].every((s) => cover.includes(s)) && data.roster.every((r) => r.aiMarks === null && r.change === null) && cover.includes('No AI marks on record'))
-    const p2 = await pageText(file, 2)
-    const p3 = await pageText(file, 3)
-    const p4 = await pageText(file, 4)
-    check('each pupil starts a new page', p2.includes('Ann Adams') && p3.includes('Zed Brown') && p4.includes('Cal Clark'))
-    check('the section is the pupil\'s full feedback from the latest attempt', p2.includes('3 / 4 marks') && p2.includes('Latest attempt comment') && p2.includes('Strong (2)') && !p2.includes('Old attempt comment'))
-    check('page header carries pupil and class, footer page numbers', /Zed Brown\s+·\s+cf-check-/.test(p3) && p3.includes('Page 3 of 4'))
-    const all = cover + p2 + p3 + p4
+    const gridPage = await pageText(file, 2)
+    check(
+      'page 2 is the pupil-by-question grid: key in words, every pupil, % correct per question',
+      gridPage.includes('Pupil by question') &&
+        ['Full marks', 'Partial marks', 'Attempted, no marks', 'Did not attempt'].every((s) => gridPage.includes(s)) &&
+        ['Ann Adams', 'Amy Brown', 'Zed Brown', 'Cal Clark', 'Dee Davis'].every((s) => gridPage.includes(s)) &&
+        /% correct\s+15%\s+20%/.test(gridPage),
+      gridPage,
+    )
+    const analysisPage = await pageText(file, 3)
+    check(
+      'page 3 is the question analysis: key in words, the pupil count, and the counts per question',
+      analysisPage.includes('Question analysis') &&
+        ['Full marks', 'Partial marks', 'Attempted, no marks', 'Did not attempt'].every((s) => analysisPage.includes(s)) &&
+        analysisPage.includes('5 pupils') &&
+        /1\s+4 marks.*0\s*\/\s*1\s*\/\s*0\s*\/\s*4/.test(analysisPage) &&
+        /2\s+2 marks.*1\s*\/\s*0\s*\/\s*1\s*\/\s*3/.test(analysisPage) &&
+        !analysisPage.includes('Ann Adams'),
+      analysisPage,
+    )
+    const p2 = await pageText(file, 4)
+    const p3 = await pageText(file, 5)
+    const p4 = await pageText(file, 6)
+    check('each pupil starts a new page, after the grid and the question analysis', p2.includes('Ann Adams') && p3.includes('Zed Brown') && p4.includes('Cal Clark'))
+    check('the section is the pupil\'s full feedback from the latest attempt', p2.includes('5 / 6 marks') && p2.includes('Latest attempt comment') && p2.includes('Strong (2)') && !p2.includes('Old attempt comment'))
+    check('page header carries pupil and class, footer page numbers', /Zed Brown\s+·\s+cf-check-/.test(p3) && p3.includes('Page 5 of 6'))
+    const all = cover + gridPage + analysisPage + p2 + p3 + p4
     check('no staff or outsider anywhere in the PDF', !all.includes('Staff') && !all.includes('Sider'))
     await rm(file, { force: true })
   } finally {
