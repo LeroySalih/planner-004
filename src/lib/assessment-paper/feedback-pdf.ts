@@ -4,7 +4,7 @@ import sharp from "sharp"
 
 import { query } from "@/lib/db"
 import { isPracticalAssessmentType } from "@/dino.config"
-import { pupilHasSatAssessment, readMarkablePages } from "@/lib/assessment-paper/files"
+import { pupilHasSatAssessment, readMarkablePages, readQuestionPaperPdf } from "@/lib/assessment-paper/files"
 import {
   pupilFeedbackVisible,
   readAssessmentPaperResult,
@@ -23,6 +23,7 @@ import {
 import { isLessonLockedForUser } from "@/lib/lesson-lock"
 import { powerPointMarkState, powerPointQuestionShownToPupil } from "@/lib/assessment-paper/pupil-feedback"
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
+import { pdfText } from "@/lib/pdf/poppler"
 import { practicalTypeConfig } from "@/lib/practical-assessment/types"
 import { AssessmentPaperActivityBodySchema } from "@/types"
 
@@ -61,6 +62,27 @@ export type FeedbackPdfQuestion = {
   markScheme: string | null
 }
 
+/**
+ * A practical assessment's questions as its question paper sets them out: a
+ * task per leading part of the label (1a, 1b → task 1; S1..S5 → Section B),
+ * in position order, with the marks the pupil was shown out of the task's.
+ */
+export type FeedbackPdfTask = {
+  heading: string
+  /** Shown marks only; a question with no mark counts 0. */
+  awarded: number
+  available: number
+  /** `part` is "(a)" for 1a, or the label itself when it has no part letter (S1). */
+  parts: Array<{ part: string; question: FeedbackPdfQuestion }>
+}
+
+/** Task titles found in the question paper's text; empty when there is none. */
+export type TaskTitles = { tasks: Record<string, string>; sectionB: string | null }
+
+const NO_TASK_TITLES: TaskTitles = { tasks: {}, sectionB: null }
+const QUESTION_PAPER_TEXT_CHARS = 200_000
+const MAX_TITLE_CHARS = 100
+
 export type FeedbackPdfData = {
   paperTitle: string
   pupilName: string
@@ -73,6 +95,8 @@ export type FeedbackPdfData = {
   /** A practical assessment (PowerPoint or database): the pupil's work is their files, not a script. */
   powerPoint: boolean
   questions: FeedbackPdfQuestion[]
+  /** A practical assessment's questions grouped as tasks; null on an assessment paper. */
+  tasks: FeedbackPdfTask[] | null
   /**
    * The AI's marks against the teacher's (summariseTeacherChanges). Only in
    * the teacher copy (the class PDF); never set on a pupil's own PDF.
@@ -128,11 +152,92 @@ function needsImages(kind: AnswerKind, status: AnswerStatus) {
   return status === "unreadable" || kind === "sketch" || kind === "mixed"
 }
 
-/** `teacherCopy` adds the AI-against-teacher marks; only the class PDF passes it. */
+/**
+ * Task titles from a question paper's text (pdftotext -layout): "Task 1 –
+ * Master slide (10 marks)" gives task 1 "Master slide"; the dash may be –, —
+ * or -, and the marks are optional. "Section B – Short answer (8 marks)" gives
+ * "Section B – Short answer". The first line for each wins. Text in a second
+ * layout column (after three or more spaces) is ignored.
+ */
+export function parseTaskTitles(text: string): TaskTitles {
+  const tasks: Record<string, string> = {}
+  let sectionB: string | null = null
+  for (const line of text.split(/\r?\n|\f/)) {
+    const segment = line.trim().split(/\s{3,}/)[0]
+    const task = segment.match(/^Task\s+(\d+)\s*[–—-]\s*(.+)$/i)
+    if (task) {
+      const title = task[2].replace(/\s*\(\s*\d+\s*marks?\s*\)\s*$/i, "").trim().slice(0, MAX_TITLE_CHARS)
+      const number = String(Number(task[1]))
+      if (title && !(number in tasks)) tasks[number] = title
+      continue
+    }
+    const section = segment.match(/^Section\s+B\s*[–—-]\s*(.+)$/i)
+    if (section && sectionB === null) {
+      const title = section[1].split("(")[0].trim().slice(0, MAX_TITLE_CHARS)
+      if (title) sectionB = `Section B – ${title}`
+    }
+  }
+  return { tasks, sectionB }
+}
+
+/**
+ * The task titles in the activity's question paper. Never throws: no paper,
+ * or one pdftotext cannot read, gives no titles and the headings fall back to
+ * "Task N".
+ */
+export async function readTaskTitles(activityId: string): Promise<TaskTitles> {
+  try {
+    const pdf = await readQuestionPaperPdf(activityId)
+    if (!pdf) return NO_TASK_TITLES
+    return parseTaskTitles((await pdfText(pdf, { maxChars: QUESTION_PAPER_TEXT_CHARS })).text)
+  } catch (error) {
+    console.error("[assessment-paper] feedback PDF could not read the question paper's task titles", error)
+    return NO_TASK_TITLES
+  }
+}
+
+/** A label's task (its leading number or letters) and part: 1a → 1, "(a)"; S1 → S, "S1". */
+export function questionTaskPart(label: string): { group: string; part: string } {
+  const trimmed = label.trim()
+  const lettered = trimmed.match(/^(\d+)\s*\(?([a-z]+)\)?$/i)
+  if (lettered) return { group: String(Number(lettered[1])), part: `(${lettered[2].toLowerCase()})` }
+  const lead = trimmed.match(/^(\d+|[a-z]+)/i)?.[1]
+  if (!lead) return { group: trimmed, part: trimmed }
+  return { group: /^\d+$/.test(lead) ? String(Number(lead)) : lead.toUpperCase(), part: trimmed }
+}
+
+function taskHeading(group: string, titles: TaskTitles): string {
+  if (/^\d+$/.test(group)) return titles.tasks[group] ? `Task ${group} – ${titles.tasks[group]}` : `Task ${group}`
+  if (group === "S") return titles.sectionB ?? "Section B"
+  return group
+}
+
+/** Questions in position order, a task per run of the same group. */
+export function groupFeedbackTasks(questions: FeedbackPdfQuestion[], titles: TaskTitles): FeedbackPdfTask[] {
+  const tasks: FeedbackPdfTask[] = []
+  let lastGroup: string | null = null
+  for (const question of questions) {
+    const { group, part } = questionTaskPart(question.label)
+    if (group !== lastGroup) {
+      tasks.push({ heading: taskHeading(group, titles), awarded: 0, available: 0, parts: [] })
+      lastGroup = group
+    }
+    const task = tasks[tasks.length - 1]
+    task.awarded += question.awarded ?? 0
+    task.available += question.maxMarks
+    task.parts.push({ part, question })
+  }
+  return tasks
+}
+
+/**
+ * `teacherCopy` adds the AI-against-teacher marks; only the class PDF passes
+ * it. `taskTitles` saves the class PDF reading the question paper per pupil.
+ */
 export async function readAssessmentFeedbackPdfData(
   activityId: string,
   pupilId: string,
-  options: { teacherCopy?: boolean } = {},
+  options: { teacherCopy?: boolean; taskTitles?: TaskTitles } = {},
 ): Promise<FeedbackPdfData> {
   const result = await readAssessmentPaperResult(activityId, pupilId)
 
@@ -188,6 +293,44 @@ export async function readAssessmentFeedbackPdfData(
     new Set(visibility.assignments.map((a) => a.group_id).filter((id): id is string => Boolean(id))),
   )
 
+  const questions: FeedbackPdfQuestion[] = result.questions.map((q) => {
+    const marksShown = shown(q)
+    const isLegacy = q.criteria.length > 0 && q.criteria.every((c) => c.provenance === "legacy")
+    const answer = powerPoint
+      ? powerPointAnswer(q.answer)
+      : !folded && q.answer
+      ? {
+          kind: q.answer.kind,
+          status: q.answer.status,
+          transcription: q.answer.transcription,
+          images: needsImages(q.answer.kind, q.answer.status)
+            ? q.answer.pages.flatMap((p) => {
+                const src = images.get(p)
+                return src ? [{ pageNumber: p, src }] : []
+              })
+            : [],
+        }
+      : null
+    return {
+      label: q.label,
+      questionText: q.questionText,
+      maxMarks: q.available,
+      awarded: marksShown ? q.awarded : null,
+      answer,
+      // A legacy mark is the question's, repeated on every criterion with
+      // the same comment, so it is shown once.
+      legacy: isLegacy && marksShown ? { feedback: effectiveQuestionCriterionFeedback(q.criteria[0]) } : null,
+      criteria: q.criteria.map((c) => ({
+        description: c.description,
+        awarded: marksShown ? c.awarded : null,
+        available: c.allocation,
+        feedback: marksShown ? effectiveQuestionCriterionFeedback(c) : null,
+      })),
+      markScheme: showMarkScheme ? q.markScheme : null,
+    }
+  })
+  const taskTitles = powerPoint ? options.taskTitles ?? (await readTaskTitles(activityId)) : null
+
   return {
     paperTitle: activityRows[0]?.title?.trim() || (powerPoint ? practicalTypeConfig(activityRows[0]?.type).label : "Assessment paper"),
     pupilName: [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Pupil",
@@ -205,42 +348,8 @@ export async function readAssessmentFeedbackPdfData(
           questionOutcomes: result.questions.map((q) => ({ questionId: q.questionId, outcome: questionOutcome(q), awarded: q.awarded })),
         }
       : {}),
-    questions: result.questions.map((q) => {
-      const marksShown = shown(q)
-      const isLegacy = q.criteria.length > 0 && q.criteria.every((c) => c.provenance === "legacy")
-      const answer = powerPoint
-        ? powerPointAnswer(q.answer)
-        : !folded && q.answer
-        ? {
-            kind: q.answer.kind,
-            status: q.answer.status,
-            transcription: q.answer.transcription,
-            images: needsImages(q.answer.kind, q.answer.status)
-              ? q.answer.pages.flatMap((p) => {
-                  const src = images.get(p)
-                  return src ? [{ pageNumber: p, src }] : []
-                })
-              : [],
-          }
-        : null
-      return {
-        label: q.label,
-        questionText: q.questionText,
-        maxMarks: q.available,
-        awarded: marksShown ? q.awarded : null,
-        answer,
-        // A legacy mark is the question's, repeated on every criterion with
-        // the same comment, so it is shown once.
-        legacy: isLegacy && marksShown ? { feedback: effectiveQuestionCriterionFeedback(q.criteria[0]) } : null,
-        criteria: q.criteria.map((c) => ({
-          description: c.description,
-          awarded: marksShown ? c.awarded : null,
-          available: c.allocation,
-          feedback: marksShown ? effectiveQuestionCriterionFeedback(c) : null,
-        })),
-        markScheme: showMarkScheme ? q.markScheme : null,
-      }
-    }),
+    questions,
+    tasks: taskTitles ? groupFeedbackTasks(questions, taskTitles) : null,
   }
 }
 

@@ -8,7 +8,7 @@ import { format } from "date-fns"
 
 import { query } from "@/lib/db"
 import { isPracticalAssessmentType } from "@/dino.config"
-import { readAssessmentFeedbackPdfData, type FeedbackPdfData } from "@/lib/assessment-paper/feedback-pdf"
+import { readAssessmentFeedbackPdfData, readTaskTitles, type FeedbackPdfData } from "@/lib/assessment-paper/feedback-pdf"
 import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
 import type { QuestionOutcome } from "@/lib/assessment-paper/results"
 import { readAssessmentQuestions } from "@/lib/assessment-paper/store"
@@ -162,9 +162,11 @@ export async function readClassFeedbackPdfData(activityId: string, groupId: stri
   const pupils: FeedbackPdfData[] = []
   const outcomesOf = new Map<string, Map<string, ClassFeedbackCell>>()
   const changesOf = new Map<string, NonNullable<FeedbackPdfData["teacherChanges"]>>()
+  // The question paper is read once for every pupil's task headings.
+  const taskTitles = powerPoint && rows.some((row) => hasSat(row, powerPoint)) ? await readTaskTitles(activityId) : undefined
   for (const row of rows) {
     if (!hasSat(row, powerPoint)) continue
-    const pupil = await readAssessmentFeedbackPdfData(activityId, row.pupil_id, { teacherCopy: true })
+    const pupil = await readAssessmentFeedbackPdfData(activityId, row.pupil_id, { teacherCopy: true, taskTitles })
     if (pupil.teacherChanges) changesOf.set(row.pupil_id, pupil.teacherChanges)
     pupils.push({ ...pupil, className: groupId })
     outcomesOf.set(row.pupil_id, new Map((pupil.questionOutcomes ?? []).map((o) => [o.questionId, { outcome: o.outcome, awarded: o.awarded }])))

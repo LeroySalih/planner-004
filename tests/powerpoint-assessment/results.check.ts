@@ -34,7 +34,7 @@ import {
 } from '@/lib/powerpoint-assessment/files'
 import { readPupilPowerPointView } from '@/lib/powerpoint-assessment/pupil-view'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
-import { AssessmentPaperFeedbackDocument } from '@/components/pdf/assessment-paper-feedback-document'
+import { AssessmentPaperFeedbackDocument, practicalPartMarks } from '@/components/pdf/assessment-paper-feedback-document'
 
 // A PowerPoint assessment on the teacher's results page and in the feedback
 // PDFs: the result carries the pupil's files (no script), what the reader
@@ -332,7 +332,9 @@ async function main() {
     const pupilText = await pdfText(Buffer.from(pupilPdf))
     // Table cells wrap, so words are compared without the layout.
     const pupilWords = pupilText.replace(/\s+/g, ' ')
-    check('the pupil\'s PDF renders', pupilWords.includes('Ann Aaa') && pupilWords.includes('In your files') && pupilWords.includes('TASK') && TYPED.split(' ').every((word) => pupilWords.includes(word)), pupilWords.slice(0, 600))
+    // Set out as the question paper: a heading per task, each part's text and marks, no answers.
+    check('the pupil\'s PDF renders as the question paper', pupilWords.includes('Ann Aaa') && pupilWords.includes('Create a title slide.') && /awarded/.test(pupilWords) && !pupilWords.includes(TYPED) && !pupilWords.includes('In your files'), pupilWords.slice(0, 600))
+    check('…one task for T1..T5, with the shown marks', pdfData.tasks?.length === 1 && pdfData.tasks[0].parts.map((p) => p.part).join() === 'T1,T2,T3,T4,T5' && pdfData.tasks[0].available === 6, JSON.stringify(pdfData.tasks?.map((t) => ({ ...t, parts: t.parts.map((p) => p.part) }))))
     check('…with nothing secret', !pupilText.includes(SECRETS.digest) && !pupilText.includes(SECRETS.markerEvidence))
 
     // --- The class PDF --------------------------------------------------------------
@@ -431,6 +433,10 @@ async function main() {
     check('…the teacher\'s question is in it', heldPdfQ('T3').awarded === 1 && JSON.stringify(heldPdfQ('T3').criteria).includes('TEACHER-HELD-T3'), JSON.stringify(heldPdfQ('T3')))
     check('…the marker\'s question is not', heldPdfQ('T2').awarded === null && heldPdfQ('T2').criteria.every((c) => c.awarded === null && c.feedback === null) && !JSON.stringify(heldPdf).includes('AI-HOW-HELD-T2'), JSON.stringify(heldPdfQ('T2')))
     check('…and its total counts only what is shown', heldPdf.marksAwarded === 1, String(heldPdf.marksAwarded))
+    const heldPart = (label: string) => heldPdf.tasks!.flatMap((t) => t.parts).find((p) => p.question.label === label)!.question
+    check('…its task subtotal too, and the marker\'s part reads not marked yet', heldPdf.tasks?.[0].awarded === 1 && practicalPartMarks(heldPart('T2')).text === 'Not marked yet' && practicalPartMarks(heldPart('T2')).lost.length === 0 && practicalPartMarks(heldPart('T3')).tone === 'full', JSON.stringify(heldPdf.tasks?.[0].awarded))
+    const heldWords = (await pdfText(Buffer.from(await renderToBuffer(createElement(AssessmentPaperFeedbackDocument, { data: heldPdf }) as unknown as ReactElement<DocumentProps>)))).replace(/\s+/g, ' ')
+    check('…and the rendered PDF has none of the marker\'s text', !heldWords.includes('AI-HOW-HELD-T2') && heldWords.includes('Not marked yet'), heldWords.slice(0, 600))
     const heldView = await readPupilPowerPointView(PPT, HELD, false)
     check('…as the pupil view shows it', heldView.feedback?.marksAwarded === 1 && heldView.feedback.questions.find((x) => x.label === 'T2')?.awarded === null && heldView.feedback.questions.find((x) => x.label === 'T3')?.awarded === 1, JSON.stringify(heldView.feedback))
     const heldTeacherCopy = await readAssessmentFeedbackPdfData(PPT, HELD, { teacherCopy: true })

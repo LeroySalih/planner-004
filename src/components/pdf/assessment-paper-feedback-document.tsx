@@ -2,13 +2,16 @@ import React from "react"
 import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
 
 import type { ClassFeedbackPdfData, ClassFeedbackStatus, ClassQuestionAnalysisRow } from "@/lib/assessment-paper/class-feedback-pdf"
-import type { FeedbackPdfCriterion, FeedbackPdfData, FeedbackPdfQuestion } from "@/lib/assessment-paper/feedback-pdf"
+import type { FeedbackPdfCriterion, FeedbackPdfData, FeedbackPdfQuestion, FeedbackPdfTask } from "@/lib/assessment-paper/feedback-pdf"
 
 /**
  * One pupil's feedback on an assessment paper: A4 landscape, the overall marks
  * first, then a table with a row per question in paper order: the question,
  * the pupil's answer, the mark scheme when the paper allows it, the marks and
- * how to improve. The class document puts a cover in front of several pupils'
+ * how to improve. A practical assessment (PowerPoint or database) is set out
+ * as its question paper instead, A4 portrait: a heading per task with its
+ * marks, then each part's text, its marks, and in red what to improve where
+ * marks were lost. The class document puts a cover in front of several pupils'
  * pages, and is a teacher copy: it adds the AI's marks against the teacher's,
  * and a question analysis between the cover and the pupils' pages.
  */
@@ -16,6 +19,8 @@ import type { FeedbackPdfCriterion, FeedbackPdfData, FeedbackPdfQuestion } from 
 const BORDER = "#d4d4d8"
 const MUTED = "#52525b"
 const RED = "#dc2626"
+// The class document's "Full marks" green.
+const GREEN = "#14532d"
 const NO_ANSWER = "No answer submitted"
 const ANALYSIS_LABEL_WIDTH = 80
 const ANALYSIS_BAR_WIDTH = 520
@@ -98,6 +103,14 @@ const styles = StyleSheet.create({
   gridCellText: { fontSize: 6.5, fontFamily: "Helvetica-Bold" },
   gridTotalRow: { marginTop: 3, paddingTop: 3, borderTopWidth: 1, borderTopColor: MUTED },
   gridPercent: { width: GRID_CELL, fontSize: 6, textAlign: "center" },
+  taskHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginTop: 12, marginBottom: 4, paddingBottom: 3, borderBottomWidth: 1, borderBottomColor: BORDER },
+  taskTitle: { flex: 1, fontSize: 13, fontFamily: "Helvetica-Bold", paddingRight: 10 },
+  taskMarks: { fontSize: 11, fontFamily: "Helvetica-Bold" },
+  part: { flexDirection: "row", marginTop: 7 },
+  partLabel: { width: 30, fontFamily: "Helvetica-Bold" },
+  partBody: { flex: 1 },
+  partMarks: { marginTop: 3, fontFamily: "Helvetica-Bold" },
+  lostMarks: { marginTop: 2, color: RED },
   changes: { marginBottom: 10, padding: 8, borderWidth: 1, borderColor: BORDER, borderRadius: 3 },
   footer: { position: "absolute", bottom: 16, left: 36, right: 36, flexDirection: "row", justifyContent: "space-between", fontSize: 7, color: MUTED },
 })
@@ -184,6 +197,65 @@ function QuestionTable({ questions, powerPoint }: { questions: FeedbackPdfQuesti
 }
 
 /**
+ * A practical part's marks line: green at full marks; "x of n" otherwise,
+ * with in red the improvement text of each criterion that lost marks (the
+ * legacy mark's on a folded paper; for a blank answer with none, that there
+ * was no answer); grey when not marked yet, or not shown to the pupil yet.
+ */
+export function practicalPartMarks(question: FeedbackPdfQuestion): { text: string; tone: "full" | "lost" | "unmarked"; lost: string[] } {
+  const unit = question.maxMarks === 1 ? "mark" : "marks"
+  if (question.awarded === null) return { text: "Not marked yet", tone: "unmarked", lost: [] }
+  if (question.awarded === question.maxMarks) return { text: `${question.maxMarks} ${unit} awarded`, tone: "full", lost: [] }
+  const texts = question.legacy
+    ? [improvementText(question.legacy.feedback)]
+    : question.criteria
+        .filter((criterion) => criterion.awarded !== null && criterion.awarded < criterion.available)
+        .map((criterion) => improvementText(criterion.feedback))
+  const lost = [...new Set(texts.filter((text): text is string => Boolean(text)))]
+  return {
+    text: `${question.awarded} of ${question.maxMarks} ${unit} awarded`,
+    tone: "lost",
+    lost: lost.length === 0 && question.answer?.status === "blank" ? [NO_ANSWER] : lost,
+  }
+}
+
+function PracticalPart({ part, question }: FeedbackPdfTask["parts"][number]) {
+  const marksLine = practicalPartMarks(question)
+  return (
+    <View style={styles.part} wrap={false}>
+      <Text style={styles.partLabel}>{part}</Text>
+      <View style={styles.partBody}>
+        {question.questionText?.trim() ? <Text>{question.questionText.trim()}</Text> : null}
+        <Text style={[styles.partMarks, marksLine.tone === "full" ? { color: GREEN } : marksLine.tone === "unmarked" ? styles.muted : {}]}>
+          {marksLine.text}
+        </Text>
+        {marksLine.lost.map((text, index) => (
+          <Text key={index} style={styles.lostMarks}>{text}</Text>
+        ))}
+      </View>
+    </View>
+  )
+}
+
+function PracticalTasks({ tasks }: { tasks: FeedbackPdfTask[] }) {
+  return (
+    <>
+      {tasks.map((task, index) => (
+        <View key={index}>
+          <View style={styles.taskHeading} minPresenceAhead={60}>
+            <Text style={styles.taskTitle}>{task.heading}</Text>
+            <Text style={styles.taskMarks}>{`${task.awarded} / ${task.available} ${task.available === 1 ? "mark" : "marks"}`}</Text>
+          </View>
+          {task.parts.map((part) => (
+            <PracticalPart key={part.question.label} {...part} />
+          ))}
+        </View>
+      ))}
+    </>
+  )
+}
+
+/**
  * Teacher copy only (the class document): the questions where the teacher
  * changed the AI's marks. Absent from a pupil's own PDF, which never carries
  * teacherChanges, and omitted when no AI mark is on record.
@@ -214,7 +286,7 @@ function TeacherChangesBox({ changes, maxMarks }: { changes: FeedbackPdfData["te
 /** One pupil's pages: also a section of the class document. */
 function PupilFeedbackPage({ data }: { data: FeedbackPdfData }) {
   return (
-    <Page size="A4" orientation="landscape" style={styles.page}>
+    <Page size="A4" orientation={data.tasks ? "portrait" : "landscape"} style={styles.page}>
       <View style={styles.header} fixed>
         <Text style={styles.headerText}>{data.paperTitle}</Text>
         <Text style={styles.headerText}>{[data.pupilName, data.className].filter(Boolean).join("  ·  ")}</Text>
@@ -242,7 +314,8 @@ function PupilFeedbackPage({ data }: { data: FeedbackPdfData }) {
       {data.questions.length === 0 ? (
         <Text style={styles.muted}>{data.powerPoint ? "This assessment has no tasks yet." : "This paper has no questions yet."}</Text>
       ) : null}
-      {data.questions.length > 0 ? <QuestionTable questions={data.questions} powerPoint={data.powerPoint} /> : null}
+      {data.questions.length > 0 && data.tasks ? <PracticalTasks tasks={data.tasks} /> : null}
+      {data.questions.length > 0 && !data.tasks ? <QuestionTable questions={data.questions} powerPoint={data.powerPoint} /> : null}
 
       <Footer paperTitle={data.paperTitle} />
     </Page>
@@ -287,7 +360,7 @@ const POWERPOINT_STATUS_LABEL: Record<ClassFeedbackStatus, string> = {
  * greyscale print: dark green, red, amber, light grey.
  */
 const OUTCOMES: Array<{ key: keyof ClassQuestionAnalysisRow["counts"]; label: string; fill: string; text: string }> = [
-  { key: "full", label: "Full marks", fill: "#14532d", text: "#ffffff" },
+  { key: "full", label: "Full marks", fill: GREEN, text: "#ffffff" },
   { key: "partial", label: "Partial marks", fill: "#f59e0b", text: "#18181b" },
   { key: "zero", label: "Attempted, no marks", fill: "#dc2626", text: "#ffffff" },
   { key: "blank", label: "Did not attempt", fill: "#e4e4e7", text: "#18181b" },

@@ -691,6 +691,17 @@ says which questions show their marks: both practical types use
 (`assessmentPaperQuestionShownToPupil`). Both are released by
 `pupilFeedbackVisible`. `readPupilAssessmentPaperView` lives in the same file.
 
+The feedback PDF (`feedback-pdf.ts`, `assessment-paper-feedback-document.tsx`)
+keeps the landscape table for a paper. A practical type is set out as its
+question paper, A4 portrait: a heading per task from the leading part of each
+label (`1a`, `1b` → *Task 1 – Master slide*, the title read by `pdftotext` from
+the question paper's "Task 1 – … (n marks)" line, else *Task 1*; `S1`..`S5` →
+*Section B*) with its subtotal, then per part `(a)` and the question text, a
+green "n marks awarded", or "x of n marks awarded" with the lost criteria's
+advice in red (`practicalPartMarks`), or grey *Not marked yet*. No answers,
+mark scheme or transcriptions. The class PDF reads the titles once
+(`readTaskTitles`, which never throws). Tests: `tests/powerpoint-assessment/feedback-pdf.check.ts`.
+
 A pupil flags **one question** for their teacher to check
 (`setAssessmentQuestionFlagAction`). It is refused, by `pupilQuestionFlagRefusal`,
 unless it is their own latest attempt, feedback is released, the question shows

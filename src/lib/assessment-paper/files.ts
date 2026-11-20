@@ -158,6 +158,21 @@ export async function readMarkSchemePdf(activityId: string): Promise<Buffer | nu
   return readStoredFile(storagePath)
 }
 
+/**
+ * The activity's question paper PDF, for the practical feedback PDF's task
+ * headings. A paper file with no pupil data: only a path under the activity's
+ * own paper folder is read. Null when no question paper is attached.
+ */
+export async function readQuestionPaperPdf(activityId: string): Promise<Buffer | null> {
+  const { body } = await readAssessmentActivity(activityId)
+  const storagePath = body.questionPaperPath
+  if (!storagePath) return null
+  if (storagePath !== `${activityId}/paper/${PAPER_FILE_NAMES.question_paper}.pdf`) {
+    throw new Error("The question paper is not stored where this paper's files are kept; upload it again.")
+  }
+  return readStoredFile(storagePath)
+}
+
 /** A rendered page made upright, flattened on white and capped in size. */
 function normalisePage(page: Buffer): Promise<Buffer> {
   return sharp(page)

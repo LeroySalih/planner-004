@@ -193,8 +193,8 @@ async function main() {
     const pupilData = await readAssessmentFeedbackPdfData(PAPER, CHANGED)
     const teacherData = await readAssessmentFeedbackPdfData(PAPER, CHANGED, { teacherCopy: true })
     check('the pupil\'s own PDF data has no teacher changes', !('teacherChanges' in pupilData))
-    const { teacherChanges, ...rest } = teacherData
-    check('the teacher copy adds only teacherChanges', JSON.stringify(rest) === JSON.stringify(pupilData))
+    const { teacherChanges, questionOutcomes, ...rest } = teacherData
+    check('the teacher copy adds only teacherChanges and questionOutcomes', JSON.stringify(rest) === JSON.stringify(pupilData) && questionOutcomes?.length === 2)
     check(
       'teacher changes: AI 4, final 5, +1, Q1 3/4 -> 4/4, Q2 teacher alone',
       teacherChanges?.recorded === true && teacherChanges.aiMarks === 4 && teacherChanges.finalMarks === 5 && teacherChanges.change === 1
@@ -227,14 +227,15 @@ async function main() {
     check('cover summary line', coverText.includes('Teacher changed marks for 1 of 2 AI-marked pupils; net change +1 mark.'))
     const lines = coverText.split('\n')
     const lineOf = (name: string) => lines.find((l) => l.includes(name)) ?? ''
-    check('cover row of the changed pupil', /4\s*\/\s*6\s+5\s*\/\s*6\s+\+1\s+Marked/.test(lineOf('Ann Aaa')), lineOf('Ann Aaa').replace(/Ann Aaa/, '<name>'))
-    check('cover row of the unchanged pupil', /2\s*\/\s*6\s+2\s*\/\s*6\s+0\s+Marked/.test(lineOf('Bob Bbb')))
-    check('cover row of the legacy pupil shows — for AI mark and change', /—\s+3\s*\/\s*6\s+—\s+Marked/.test(lineOf('Cat Ccc')))
-    const changedPage = await pageText(file, 2)
+    check('cover row of the changed pupil', /4\s*\/\s*6\s+5\s*\/\s*6\s+83%\s+\+1\s+Marked/.test(lineOf('Ann Aaa')), lineOf('Ann Aaa').replace(/Ann Aaa/, '<name>'))
+    check('cover row of the unchanged pupil', /2\s*\/\s*6\s+2\s*\/\s*6\s+33%\s+0\s+Marked/.test(lineOf('Bob Bbb')))
+    check('cover row of the legacy pupil shows — for AI mark and change', /—\s+3\s*\/\s*6\s+50%\s+—\s+Marked/.test(lineOf('Cat Ccc')))
+    // The cover, then the pupil-by-question grid and the question analysis.
+    const changedPage = await pageText(file, 4)
     check('changed pupil\'s box', changedPage.includes('TEACHER CHANGES') && changedPage.includes('Q1: AI 3/4 -> Teacher 4/4') && changedPage.includes('Marked by the teacher alone') && changedPage.includes('Q2'))
-    const unchangedPage = await pageText(file, 3)
+    const unchangedPage = await pageText(file, 5)
     check('unchanged pupil\'s box', unchangedPage.includes('TEACHER CHANGES') && unchangedPage.includes('No changes to the AI\'s marks.'))
-    const legacyPage = await pageText(file, 4)
+    const legacyPage = await pageText(file, 6)
     check('legacy pupil has no box', legacyPage.includes('Cat Ccc') && !legacyPage.includes('TEACHER CHANGES'))
     await rm(file, { force: true })
 

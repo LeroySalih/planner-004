@@ -363,7 +363,7 @@ async function main() {
         && !('teacherChanges' in pdfData))
     const pupilPdf = await renderToBuffer(createElement(AssessmentPaperFeedbackDocument, { data: pdfData }) as unknown as ReactElement<DocumentProps>)
     const pupilWords = (await pdfText(Buffer.from(pupilPdf))).replace(/\s+/g, ' ')
-    check('the pupil\'s PDF renders', pupilWords.includes('Ann Aaa') && pupilWords.includes('Database task') && pupilWords.includes('In your files'), pupilWords.slice(0, 400))
+    check('the pupil\'s PDF renders', pupilWords.includes('Ann Aaa') && pupilWords.includes('Database task') && /awarded/.test(pupilWords) && !pupilWords.includes('In your files'), pupilWords.slice(0, 400))
     const teacherCopy = await readAssessmentFeedbackPdfData(ACT, MARKED, { teacherCopy: true })
     check('the teacher copy has the AI-against-teacher marks', teacherCopy.teacherChanges?.recorded === true && teacherCopy.teacherChanges.change === -1,
       JSON.stringify(teacherCopy.teacherChanges))
