@@ -121,7 +121,7 @@ async function main() {
 
   // --- Rendered ---------------------------------------------------------------------------
   const base: FeedbackPdfData = {
-    paperTitle: 'Orbit kiosk', pupilName: 'Test Pupil', className: '10X', maxMarks: 11, marksAwarded: 5,
+    paperTitle: 'Orbit kiosk', pupilName: 'Test Pupil', fileName: 'Test Pupil - orbit-kiosk-feedback.pdf', className: '10X', maxMarks: 11, marksAwarded: 5,
     overallFeedback: 'OVERALL-COMMENT', folded: false, powerPoint: true, questions: qs, tasks,
   }
   const practical = await words(base)

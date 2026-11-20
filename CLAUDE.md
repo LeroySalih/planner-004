@@ -586,6 +586,12 @@ types (spreadsheets …) are new registry entries and slot-kind readers.
   PDF (`showMarkSchemeToPupils` only governs the feedback PDF's per-question
   text). A locked lesson blocks a pupil's uploads, hand-in and downloads,
   never staff's.
+- **Download names**: a pupil's own assessment file downloads as
+  `<First> <Last> - <name>` (`pupilDownloadFileName`, `src/lib/storage/pupil-file-name.ts`;
+  not doubled, unchanged with no name): practical files with their uploaded
+  name, scripts (`/api/files` and the MCP script link) as `<pupil> - <activity title>.pdf`,
+  the pupil's feedback PDF. `pupilFileDownloadName` (assessment-paper/files.ts)
+  looks it up for `/api/files`. Tests: `tests/powerpoint-assessment/download-names.check.ts`.
 - **Views**: the results panel shows *Pupil's files* (reader status, missing
   headings, warnings, unplaced pictures), each question's evidence and
   screenshots, the marker's note, and a teacher *Hand in*. The pupil's

@@ -5,10 +5,10 @@ import type { McpCaller } from '@/lib/mcp/auth'
 import { claimDownloadLink, createScriptDownloadLink } from '@/lib/mcp/download-links'
 import {
   readScriptForDownload,
-  scriptFileName,
   scriptFormat,
   setAssessmentActivityQuestionMarks,
 } from '@/lib/mcp/assessment-activities'
+import { scriptFileName } from '@/lib/assessment-paper/files'
 import { recordQuestionCriterionMarks, setAssessmentQuestions } from '@/lib/assessment-paper/store'
 
 // set_assessment_activity_question_marks and
@@ -269,12 +269,12 @@ async function main() {
       link.script.scriptId === heldScript && link.script.frontSheetCheck === 'The front sheet does not match' && link.script.pageCount === 6,
       JSON.stringify({ ...link.script, fileName: undefined }),
     )
-    check('the file name is the title and pupil, sanitised', link.script.fileName === `Systems test ${tag} - Pat O Neil.pdf`, link.script.fileName)
-    check('scriptFileName falls back when there is no title or name', scriptFileName(null, null, null) === 'Assessment - pupil.pdf')
+    check('the file name is the pupil and title, sanitised', link.script.fileName === `Pat O Neil - Systems test ${tag}.pdf`, link.script.fileName)
+    check('scriptFileName falls back when there is no title or name', scriptFileName(null, null, null) === 'Assessment.pdf')
     check(
       'a folded JPEG or PNG script keeps its type and extension',
       scriptFormat('a/scripts/s/original.jpg').contentType === 'image/jpeg' && scriptFormat('a/scripts/s/original.png').extension === 'png'
-        && scriptFormat('held.pdf').contentType === 'application/pdf' && scriptFileName('T', 'A', 'B', 'jpg') === 'T - A B.jpg',
+        && scriptFormat('held.pdf').contentType === 'application/pdf' && scriptFileName('T', 'A', 'B', 'jpg') === 'A B - T.jpg',
     )
     const claimed = await claimDownloadLink(link.token)
     check(

@@ -25,7 +25,11 @@ async function heicToJpeg(input: Buffer): Promise<Buffer> {
 
 import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { pupilMayOpenAssessmentFile } from "@/lib/assessments/store"
-import { ASSESSMENT_SCRIPTS_BUCKET, pupilMayOpenAssessmentPaperFile } from "@/lib/assessment-paper/files"
+import {
+  ASSESSMENT_SCRIPTS_BUCKET,
+  pupilFileDownloadName,
+  pupilMayOpenAssessmentPaperFile,
+} from "@/lib/assessment-paper/files"
 import { pupilMayOpenPracticalFile } from "@/lib/powerpoint-assessment/files"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
@@ -41,8 +45,9 @@ import { isLessonLockedForUser, LESSON_LOCKED_MESSAGE } from "@/lib/lesson-lock"
  *   - `filename*` = percent-encoded UTF-8 name for modern clients
  */
 function buildContentDisposition(disposition: "inline" | "attachment", fileName: string): string {
-  // Fall back to "document" if the entire filename is non-ASCII (e.g. pure Arabic).
-  const asciiFallback = fileName.replace(/[^\x20-\x7e]/g, "_") || "document"
+  // Non-ASCII, quotes and backslashes become "_" (the fallback sits inside
+  // quotes); "document" if the name is empty.
+  const asciiFallback = fileName.replace(/[^\x20-\x7e]|["\\]/g, "_") || "document"
   const encoded = encodeURIComponent(fileName)
   return `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`
 }
@@ -137,7 +142,10 @@ export async function GET(
 
   const headers = new Headers()
   const typedMetadata = metadata as { content_type?: string; size_bytes?: number; file_name?: string }
-  const fileName = typedMetadata.file_name ?? decodedSegments[decodedSegments.length - 1]
+  // A pupil's own assessment file (a script, or a practical assessment's
+  // file) is stored as original.*; it downloads as "<pupil> - <name>".
+  const pupilFileName = bucket === ASSESSMENT_SCRIPTS_BUCKET ? await pupilFileDownloadName(decodedSegments) : null
+  const fileName = pupilFileName ?? typedMetadata.file_name ?? decodedSegments[decodedSegments.length - 1]
 
   const inferContentType = () => {
     const name = fileName.toLowerCase()

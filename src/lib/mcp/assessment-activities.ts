@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { query } from '@/lib/db'
 import { isAssessmentPaperType, isDatabaseAssessmentType, isPowerPointAssessmentType, isPracticalAssessmentType, isQuestionMarkedActivityType } from '@/dino.config'
 import { triggerQueueProcessor } from '@/lib/ai/marking-queue'
-import { countFrontSheetChecks, markingAssignmentIdFor } from '@/lib/assessment-paper/files'
+import { countFrontSheetChecks, markingAssignmentIdFor, scriptFileName } from '@/lib/assessment-paper/files'
 import { readAssessmentPaperResult } from '@/lib/assessment-paper/results'
 import { readQuestionFlags, type QuestionFlagState } from '@/lib/assessment-paper/question-flags'
 import {
@@ -919,19 +919,6 @@ export function scriptFormat(originalPath: string): { extension: string; content
   const extension = originalPath.match(/\.([a-z0-9]+)$/)?.[1] ?? ''
   const contentType = SCRIPT_CONTENT_TYPES[extension]
   return contentType ? { extension, contentType } : { extension: 'pdf', contentType: 'application/pdf' }
-}
-
-/** `<activity title> - <pupil name>.<extension>`, with characters a file system refuses taken out. */
-export function scriptFileName(
-  activityTitle: string | null,
-  firstName: string | null,
-  lastName: string | null,
-  extension = 'pdf',
-): string {
-  const clean = (text: string) => text.replace(/[\u0000-\u001f\u007f/\\:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()
-  const title = clean(activityTitle ?? '').slice(0, 80).trim() || 'Assessment'
-  const name = clean(`${firstName ?? ''} ${lastName ?? ''}`).slice(0, 80).trim() || 'pupil'
-  return `${title} - ${name}.${extension}`
 }
 
 /**

@@ -13,6 +13,7 @@ import { isLessonLockedForUser } from "@/lib/lesson-lock"
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
 import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
+import { fileNameSafe, pupilDownloadFileName, pupilFullName } from "@/lib/storage/pupil-file-name"
 import { AssessmentPaperActivityBodySchema } from "@/types"
 
 // Files of an assessment-paper activity, in their own bucket:
@@ -678,4 +679,60 @@ async function pupilMayOpenOwnScript(pupilId: string, segments: string[]): Promi
   )
   if (!rows[0]) return false
   return (await readFeedbackVisibility(pupilId, rows[0].lesson_id)).visible_to_pupil
+}
+
+/**
+ * `<pupil name> - <activity title>.<extension>` (pupilDownloadFileName), with
+ * characters a file system refuses taken out; a script keeps no file name of
+ * its own, so the title stands in for it.
+ */
+export function scriptFileName(
+  activityTitle: string | null,
+  firstName: string | null,
+  lastName: string | null,
+  extension = "pdf",
+): string {
+  const title = fileNameSafe(activityTitle ?? "").slice(0, 80).trim() || "Assessment"
+  return pupilDownloadFileName(pupilFullName(firstName, lastName), `${title}.${extension}`)
+}
+
+const ORIGINAL_FILE_NAME = /^original\.([a-z0-9]+)$/
+
+/**
+ * The name a pupil's own file in the assessment-scripts bucket downloads
+ * under, for anyone allowed to open it: a script's original
+ * ({activityId}/scripts/{scriptId}/original.*) as scriptFileName, a practical
+ * assessment's file ({activityId}/practical/{fileId}/original.*) as the name
+ * it was uploaded with, each with the pupil's name in front. Null, with no
+ * query, for any other path (papers, markable pages, evidence pictures).
+ */
+export async function pupilFileDownloadName(segments: string[]): Promise<string | null> {
+  const [activityId, folder, id, fileName, ...rest] = segments
+  if (!activityId || rest.length > 0 || (folder !== "scripts" && folder !== "practical") || !UUID_RE.test(id ?? "")) return null
+  const extension = ORIGINAL_FILE_NAME.exec(fileName ?? "")?.[1]
+  if (!extension) return null
+  const path = segments.join("/")
+
+  if (folder === "practical") {
+    const { rows } = await query<{ original_name: string; first_name: string | null; last_name: string | null }>(
+      `select f.original_name, p.first_name, p.last_name
+         from practical_submission_files f
+         left join profiles p on p.user_id = f.pupil_id
+        where f.file_id = $1::uuid and f.activity_id = $2 and f.storage_path = $3`,
+      [id, activityId, path],
+    )
+    const row = rows[0]
+    return row ? pupilDownloadFileName(pupilFullName(row.first_name, row.last_name), row.original_name) : null
+  }
+
+  const { rows } = await query<{ title: string | null; first_name: string | null; last_name: string | null }>(
+    `select a.title, p.first_name, p.last_name
+       from assessment_scripts s
+       join activities a on a.activity_id = s.activity_id
+       left join profiles p on p.user_id = s.pupil_id
+      where s.script_id = $1::uuid and s.activity_id = $2 and s.original_path = $3`,
+    [id, activityId, path],
+  )
+  const row = rows[0]
+  return row ? scriptFileName(row.title, row.first_name, row.last_name, extension) : null
 }

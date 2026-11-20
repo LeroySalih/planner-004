@@ -37,14 +37,15 @@ export async function GET(request: Request, { params }: Params): Promise<Respons
   const docElement = createElement(AssessmentPaperFeedbackDocument, { data }) as unknown as ReactElement<DocumentProps>
   const buffer = await renderToBuffer(docElement)
 
-  const safeTitle =
-    data.paperTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "assessment"
+  // Named "<pupil> - <title>-feedback.pdf"; filename* carries a non-Latin name.
+  const fileName = data.fileName
+  const asciiFallback = fileName.replace(/[^\x20-\x7e]|["\\]/g, "_")
 
   return new Response(new Uint8Array(buffer), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${safeTitle}-feedback.pdf"`,
+      "Content-Disposition": `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
       "Cache-Control": "no-store",
     },
   })

@@ -25,6 +25,7 @@ import { powerPointMarkState, powerPointQuestionShownToPupil } from "@/lib/asses
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
 import { pdfText } from "@/lib/pdf/poppler"
 import { practicalTypeConfig } from "@/lib/practical-assessment/types"
+import { pupilDownloadFileName, pupilFullName } from "@/lib/storage/pupil-file-name"
 import { AssessmentPaperActivityBodySchema } from "@/types"
 
 // What a pupil's feedback PDF on an assessment paper holds, read fresh when it
@@ -83,9 +84,17 @@ const NO_TASK_TITLES: TaskTitles = { tasks: {}, sectionB: null }
 const QUESTION_PAPER_TEXT_CHARS = 200_000
 const MAX_TITLE_CHARS = 100
 
+/** `<pupil name> - <slugified title>-feedback.pdf` (pupilDownloadFileName). */
+export function feedbackPdfFileName(paperTitle: string, firstName: string | null, lastName: string | null): string {
+  const title = paperTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "assessment"
+  return pupilDownloadFileName(pupilFullName(firstName, lastName), `${title}-feedback.pdf`)
+}
+
 export type FeedbackPdfData = {
   paperTitle: string
   pupilName: string
+  /** What the pupil's own PDF downloads as (feedbackPdfFileName). */
+  fileName: string
   className: string | null
   maxMarks: number
   marksAwarded: number | null
@@ -331,9 +340,11 @@ export async function readAssessmentFeedbackPdfData(
   })
   const taskTitles = powerPoint ? options.taskTitles ?? (await readTaskTitles(activityId)) : null
 
+  const paperTitle = activityRows[0]?.title?.trim() || (powerPoint ? practicalTypeConfig(activityRows[0]?.type).label : "Assessment paper")
   return {
-    paperTitle: activityRows[0]?.title?.trim() || (powerPoint ? practicalTypeConfig(activityRows[0]?.type).label : "Assessment paper"),
+    paperTitle,
     pupilName: [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Pupil",
+    fileName: feedbackPdfFileName(paperTitle, profile?.first_name ?? null, profile?.last_name ?? null),
     className: classNames.length > 0 ? classNames.join(", ") : null,
     maxMarks: result.maxMarks,
     marksAwarded: allShown
