@@ -38,7 +38,8 @@ import { AssessmentPaperActivityBodySchema, type PracticalUploadSlot } from '@/t
 // files through the upload links; this is the rest: the questions' input
 // shape, the overview, one pupil's result, a teacher's marks on one question,
 // the script behind a script download link, and (practical) what the reader
-// made of a pupil's files and a teacher's hand-in for a pupil.
+// made of a pupil's files and a teacher's hand-in for a pupil. Reading and
+// marking a whole activity again is src/lib/assessment-paper/remark-activity.ts.
 
 // The MCP SDK sends every parameter as a string, and z.array() does not
 // coerce one, so arrays are parsed first (CLAUDE.md, MCP gotchas).
@@ -1391,3 +1392,6 @@ export async function handInPowerPointAssessmentForPupil(input: { activityId: st
     mark_status: result.state.markStatus,
   }
 }
+
+/** remark_assessment_activity's `pupil_ids` parameter. */
+export const RemarkPupilIdsInput = jsonArray(z.string().min(1))

@@ -12,7 +12,7 @@ import {
   assertPupilSitsAssessment,
   markingAssignmentIdFor,
 } from "@/lib/assessment-paper/files"
-import { recomputeAssessmentSubmission } from "@/lib/assessment-paper/store"
+import { clearMarkedQuestionWork } from "@/lib/assessment-paper/store"
 import type { Queryable } from "@/lib/curriculum/unit-curriculum-guard"
 import { OfficeFileError } from "@/lib/pptx/errors"
 import {
@@ -255,25 +255,6 @@ async function readStoredFile(bucket: string, storagePath: string): Promise<Buff
 }
 
 /**
- * What was marked from the old files goes: the marker's (and legacy)
- * criterion rows, question totals and the reader's answers. A teacher's own
- * rows, and rows carrying a teacher's comment, are kept, as a re-scan keeps
- * them for an assessment paper.
- */
-async function clearMarkedWork(client: Queryable, submissionId: string) {
-  await client.query(
-    `delete from submission_question_criterion_marks
-      where submission_id = $1 and provenance <> 'teacher' and teacher_feedback is null`,
-    [submissionId],
-  )
-  await client.query("delete from submission_question_marks where submission_id = $1", [submissionId])
-  await client.query("delete from submission_question_answers where submission_id = $1", [submissionId])
-  // Not marked any more: if sending it again then fails, it must not read as marked.
-  await client.query("update submissions set mark_status = null, mark_error = null where submission_id = $1", [submissionId])
-  await recomputeAssessmentSubmission(client, submissionId)
-}
-
-/**
  * The marking assignment id: the client's, when it names this activity's
  * lesson and a class the pupil is in, otherwise the pupil's own class (or
  * "self__{lessonId}").
@@ -398,7 +379,7 @@ export async function storePracticalFile(input: {
            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [fileId, activityId, pupilId, submissionId, slotKey, originalName, storagePath, bytes.byteLength, sha256(bytes), uploadedBy],
         )
-        if (handedIn) await clearMarkedWork(client, submissionId)
+        if (handedIn) await clearMarkedQuestionWork(client, submissionId, { keepTeacherAnswers: false })
         await client.query("COMMIT")
         return { submissionId, replacedFileId: old[0]?.file_id ?? null, handedIn }
       } catch (error) {
@@ -491,7 +472,7 @@ export async function removePracticalFile(input: {
         [latest.submission_id, slotKey],
       )
       const handedIn = latest.submission_status === "submitted" && rows.length > 0
-      if (handedIn) await clearMarkedWork(client, latest.submission_id)
+      if (handedIn) await clearMarkedQuestionWork(client, latest.submission_id, { keepTeacherAnswers: false })
       await client.query("COMMIT")
       return { submissionId: latest.submission_id, fileId: rows[0]?.file_id ?? null, handedIn }
     } catch (error) {
@@ -717,7 +698,7 @@ export async function reopenPowerPointAssessment(
             and payload->>'submissionId' = $1`,
         [latest.submission_id],
       )
-      await clearMarkedWork(client, latest.submission_id)
+      await clearMarkedQuestionWork(client, latest.submission_id, { keepTeacherAnswers: false })
       await client.query("update submissions set submission_status = 'inprogress' where submission_id = $1", [
         latest.submission_id,
       ])

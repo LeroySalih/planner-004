@@ -1351,6 +1351,90 @@ export async function remarkAssessmentQuestions(input: {
   })
 }
 
+/**
+ * What the reader and marker wrote on a submission goes, so it can be read
+ * and marked again: the marker's (and legacy) criterion rows, the question
+ * totals they made and the reader's answers. A teacher's own rows, and rows
+ * carrying a teacher's comment (which the marker overwrites, keeping the
+ * comment), are kept, with their ai_awarded. `keepTeacherAnswers` keeps a
+ * transcription a teacher edited (its marker's note goes): a re-read of the
+ * same script never overwrites it. Without it every answer goes, as when a
+ * practical assessment's files change. The submission is left unmarked: if
+ * sending it again then fails, it must not read as marked. The caller holds
+ * the submission's row lock.
+ */
+export async function clearMarkedQuestionWork(
+  db: Queryable,
+  submissionId: string,
+  options: { keepTeacherAnswers: boolean },
+): Promise<void> {
+  await db.query(
+    `delete from submission_question_criterion_marks
+      where submission_id = $1 and provenance <> 'teacher' and teacher_feedback is null`,
+    [submissionId],
+  )
+  await db.query("delete from submission_question_marks where submission_id = $1 and provenance <> 'teacher'", [
+    submissionId,
+  ])
+  if (options.keepTeacherAnswers) {
+    await db.query("delete from submission_question_answers where submission_id = $1 and provenance <> 'teacher'", [
+      submissionId,
+    ])
+    await db.query(
+      `update submission_question_answers set marker_evidence = null, updated_at = timezone('utc', now())
+        where submission_id = $1 and marker_evidence is not null`,
+      [submissionId],
+    )
+  } else {
+    await db.query("delete from submission_question_answers where submission_id = $1", [submissionId])
+  }
+  await db.query("update submissions set mark_status = null, mark_error = null where submission_id = $1", [submissionId])
+  await recomputeAssessmentSubmission(db, submissionId)
+}
+
+/** Why a submission was not cleared for a re-read (clearForReread). */
+export type RereadRefusal = "already_reading" | "not_handed_in"
+
+/**
+ * Clear one latest submission so its work is read and marked again from the
+ * start (remark_assessment_activity), under the submission's row lock: its
+ * open read and mark jobs are dropped (a read or mark already running finds
+ * its job gone and writes nothing), then clearMarkedQuestionWork, keeping a
+ * teacher's transcription on an assessment paper. Refused, with nothing
+ * changed, while a read is already open, or (practical) once the work is no
+ * longer handed in. The caller then queues the read (enqueueMarkingTasks).
+ */
+export async function clearForReread(input: {
+  activityId: string
+  submissionId: string
+}): Promise<RereadRefusal | null> {
+  return inTransaction(async (client) => {
+    const activityId = await lockAssessmentSubmission(client, input.submissionId)
+    if (activityId !== input.activityId) {
+      throw new Error(`Submission ${input.submissionId} is not on assessment activity ${input.activityId}.`)
+    }
+    const practical = await isPracticalActivity(client, activityId)
+    const { rows } = await client.query<{ submission_status: string | null; reading: boolean }>(
+      `select s.submission_status,
+              exists (select 1 from external_jobs j
+                       where j.job_type = 'ai_read' and j.status in ('pending', 'processing')
+                         and j.payload->>'submissionId' = s.submission_id) as reading
+         from submissions s where s.submission_id = $1`,
+      [input.submissionId],
+    )
+    if (rows[0]?.reading) return "already_reading"
+    if (practical && rows[0]?.submission_status !== "submitted") return "not_handed_in"
+    await client.query(
+      `delete from external_jobs
+        where job_type in ('ai_read', 'ai_mark') and status in ('pending', 'processing')
+          and payload->>'submissionId' = $1`,
+      [input.submissionId],
+    )
+    await clearMarkedQuestionWork(client, input.submissionId, { keepTeacherAnswers: !practical })
+    return null
+  })
+}
+
 async function readAnswers(db: Queryable, submissionId: string): Promise<Map<string, SubmissionQuestionAnswer>> {
   const { rows } = await db.query<{
     question_id: string

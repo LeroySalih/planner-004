@@ -81,7 +81,9 @@ import {
   describeMarkSchemeRemarking,
   setAssessmentActivityQuestionMarks,
   setAssessmentActivityQuestions,
+  RemarkPupilIdsInput,
 } from '@/lib/mcp/assessment-activities'
+import { describeActivityRemark, remarkAssessmentActivity } from '@/lib/assessment-paper/remark-activity'
 import { proposeMarkSchemeSplit } from '@/lib/assessment-paper/mark-scheme-split'
 import { classFeedbackFileName } from '@/lib/assessment-paper/class-feedback-pdf'
 import { createClassFeedbackDownloadLink, createDownloadLink, createScriptDownloadLink, listLessonFiles } from '@/lib/mcp/download-links'
@@ -3773,6 +3775,36 @@ The result is checked as create_activity checks it; a body over a limit is refus
         'hand_in',
         () => handInPowerPointAssessmentForPupil({ activityId: activity_id, pupilId: pupil_id, teacherId: caller.userId }),
         (h) => (h.already_handed_in ? 'Already handed in; nothing changed.' : `Handed in${h.mark_status ? `; ${h.mark_status}` : ''}.`),
+      ),
+  )
+
+  srv.registerTool(
+    'remark_assessment_activity',
+    {
+      title: 'Read and mark again an assessment-paper, PowerPoint or database assessment',
+      description:
+        'Read each pupil\'s work again and mark it again from the start, on an assessment-paper, PowerPoint assessment or database assessment activity: '
+        + 'use it after the reader changed (a new reader version) or to start marking over. Only each pupil\'s latest submission, and only work that can be read: '
+        + 'handed in (PowerPoint, database) or a newest script that passed the front sheet check (assessment paper). '
+        + 'Per submission: queued reads and marks are dropped, the AI\'s marks, comments and the reader\'s answers are cleared, then one read is queued, '
+        + 'which queues one AI mark per question as on hand-in (not teacher-only questions, blank answers, questions held for want of a mark scheme, or a question a teacher has marked in full). '
+        + 'A teacher\'s marks and comments are kept, and on an assessment paper so is a transcription the teacher edited. Pupils\' open question flags are left as they are. '
+        + 'Skipped, by pupil id: not_handed_in, no_passed_script, already_reading (a read is already waiting or running), nothing_to_remark (every question marked in full by a teacher), '
+        + 'no_submission (a pupil_ids entry with no submission). held: sent but held by the queue, with the reason; failed: could not be sent (recorded on the submission). '
+        + 'Refused for any other activity type and for a paper folded in from the old assessments module. dry_run: true reports what would be queued and changes nothing. '
+        + 'Arrays may be sent as JSON strings.',
+      inputSchema: {
+        activity_id: z.string().min(1).describe('The assessment-paper, PowerPoint assessment or database assessment activity id.'),
+        pupil_ids: RemarkPupilIdsInput.optional().describe('Only these pupils (user ids from get_assessment_activity). Omit for every pupil with a submission. May be a JSON string.'),
+        dry_run: mcpBoolean.optional().describe('true: report what would be queued; change nothing. Default false.'),
+      },
+      outputSchema: { remark: z.record(z.string(), z.unknown()).nullable() },
+    },
+    async ({ activity_id, pupil_ids, dry_run }) =>
+      assessmentActivityTool(
+        'remark',
+        () => remarkAssessmentActivity({ activityId: activity_id, pupilIds: pupil_ids, dryRun: dry_run ?? false }),
+        describeActivityRemark,
       ),
   )
 

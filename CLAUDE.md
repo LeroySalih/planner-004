@@ -459,6 +459,17 @@ sheet, held or not: a teacher copy that no model sees. A replacement upload
 deletes the script row and the link with it (`ON DELETE CASCADE`). Tests:
 `tests/assessment-paper/question-marks-mcp.check.ts`.
 
+MCP `remark_assessment_activity` (any question-marked type) reads and marks
+again pupils' latest submissions (or `pupil_ids`; `dry_run` changes nothing):
+handed in (practical) or a passed newest script (paper), no `ai_read` open, not
+every question teacher-marked; never a folded paper. Under the row lock
+(`clearForReread`, store.ts) open read/mark jobs go and
+`clearMarkedQuestionWork` clears the marker's rows and the reader's answers
+(teacher rows, a teacher's comment and, on a paper, a teacher's transcription
+stay), then `enqueueMarkingTasks` queues a fresh read, which picks up a new
+reader version. Flags are left alone. Code `src/lib/assessment-paper/remark-activity.ts`;
+tests `tests/assessment-paper/remark-activity.check.ts`.
+
 `submission_question_criterion_marks.ai_awarded` (migration 141) keeps the
 marker's own mark: every AI write sets it, a teacher's write (mark, comment,
 confirm, transcription) never touches it, and the marker never writes over a
