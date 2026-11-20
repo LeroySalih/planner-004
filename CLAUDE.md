@@ -562,6 +562,14 @@ types (spreadsheets …) are new registry entries and slot-kind readers.
   `READER_VERSION`) in `practical_submission_evidence`. A file that cannot be
   read holds the **whole** submission (`mark_status` null, reason in
   `mark_error`).
+  The presentation report gives every formatting value **effective**, with
+  its source in brackets: title/text alignment and anchor, footer/date/slide
+  number font, size, colour, b/i/u, shape and placeholder fills, resolved
+  slide → layout → master → `txStyles` → `defaultTextStyle` → theme →
+  PowerPoint's default (`[set on this slide]`, `[from master]`, `[default]`
+  …); a value it cannot resolve is `UNKNOWN (reader could not resolve)`,
+  never left out (`powerpoint-reader-2`; tests `tests/pptx/effective-format.check.ts`,
+  fixtures from `tests/fixtures/pptx/generate-reader-fixtures.py`).
 - **Blank**: a `required` source missing, or no source with anything, is
   blank → 0 with no model call; the comment is the reader's reason ("You did
   not hand in …", "Slide 6 is not in your presentation.", "There is no 1j
@@ -579,7 +587,12 @@ types (spreadsheets …) are new registry entries and slot-kind readers.
   unseen setting; every comment names its slide, file or heading; never the
   pupil's name. The reply's `evidence_note` is stored as
   `submission_question_answers.marker_evidence`: **teacher-only**, like
-  `ai_awarded`.
+  `ai_awarded`. A part needing a value the report gives as UNKNOWN is not
+  given 0: the marker replies `hold_for_teacher: {reason}`, and
+  `completeAssessmentQuestionMark` holds it like an EMF screenshot (no AI
+  rows, teacher rows kept, answer `unreadable` with the reason, named in
+  `mark_error`, *Check* in the results panel). Tests:
+  `tests/powerpoint-assessment/hold-for-teacher.check.ts`.
 - **Privacy**: no pupil file name reaches a model, a job row or
   `ai_marking_logs` (slot label + file id + extension instead; the upload
   link's audit row logs only the extension). Pupils never get the mark scheme

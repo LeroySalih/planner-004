@@ -496,6 +496,8 @@ export function AssessmentPaperMarksPanel({
           const answer = question.answer
           const transcription = transcriptionDrafts[question.questionId] ?? answer?.transcription ?? ""
           const flags = result.questionFlags[question.questionId]
+          // A practical part the AI held for the teacher (no AI marks on it).
+          const heldForTeacher = Boolean(powerPoint) && answer?.status === "unreadable"
           return (
             <li
               key={question.questionId}
@@ -574,7 +576,9 @@ export function AssessmentPaperMarksPanel({
               {question.awaitingCheck ? (
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1">
                   <span className="text-xs text-muted-foreground">
-                    {powerPoint
+                    {heldForTeacher
+                      ? "Held for you: the AI did not mark this part (the reason is under Evidence). Mark it yourself."
+                      : powerPoint
                       ? "Set for you to check: confirm the AI's marks or change them."
                       : answer?.kind === "sketch"
                       ? "A sketch: check the AI's marks against the page."
@@ -582,14 +586,16 @@ export function AssessmentPaperMarksPanel({
                         ? "The reader could not read this answer: check the AI's marks against the page."
                         : "Set for you to check: confirm the AI's marks or change them."}
                   </span>
-                  <button
-                    type="button"
-                    disabled={isPending || !canMark}
-                    onClick={() => confirmQuestion(question.questionId)}
-                    className="rounded border border-primary bg-primary px-2 py-0.5 text-xs text-primary-foreground disabled:opacity-50"
-                  >
-                    Confirm
-                  </button>
+                  {heldForTeacher ? null : (
+                    <button
+                      type="button"
+                      disabled={isPending || !canMark}
+                      onClick={() => confirmQuestion(question.questionId)}
+                      className="rounded border border-primary bg-primary px-2 py-0.5 text-xs text-primary-foreground disabled:opacity-50"
+                    >
+                      Confirm
+                    </button>
+                  )}
                 </div>
               ) : null}
 

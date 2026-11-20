@@ -370,8 +370,9 @@ async function main() {
     check('the system prompt and schema', captured.every((c) => c.request.systemText === POWERPOINT_MARK_SYSTEM
       && Boolean((c.request.responseSchema as any)?.properties?.evidence_note)
       && (c.request.responseSchema as any).required.includes('evidence_note')))
-    check('the schema asks for evidence_note before the marks',
-      captured.every((c) => Object.keys((c.request.responseSchema as any).properties).join(',') === 'evidence_note,criteria'),
+    check('the schema asks for evidence_note before the marks (hold_for_teacher optional, last)',
+      captured.every((c) => Object.keys((c.request.responseSchema as any).properties).join(',') === 'evidence_note,criteria,hold_for_teacher'
+        && !(c.request.responseSchema as any).required.includes('hold_for_teacher')),
       Object.keys((captured[0]?.request.responseSchema as any)?.properties ?? {}).join(','))
     check('the prompt decides point by point, every condition and do-not-accept clause, note first',
       captured.every((c) => {

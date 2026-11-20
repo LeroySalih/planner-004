@@ -159,7 +159,13 @@ export async function runPowerPointMarkJob(
     { submissionId: job.submissionId, activityId, questionId: job.questionId, provider: route.provider, model: route.model },
     call,
   )
-  if (marked.call) {
+  if (marked.call && marked.hold) {
+    await recordCall(job.jobId, marked.call)
+    await logQueueEvent("info", `Held for the teacher: question ${job.questionId} of ${label} submission ${job.submissionId}`, {
+      questionId: job.questionId,
+      durationMs: marked.call.durationMs,
+    })
+  } else if (marked.call) {
     await recordCall(job.jobId, marked.call)
     await logQueueEvent("info", `Marked ${label} submission ${job.submissionId}`, {
       questionId: job.questionId,
@@ -176,5 +182,6 @@ export async function runPowerPointMarkJob(
     jobId: job.jobId,
     rows: marked.rows,
     ...(marked.call ? { markerEvidence: { questionId: job.questionId, text: marked.evidenceNote } } : {}),
+    ...(marked.hold ? { hold: { questionId: job.questionId, reason: marked.hold } } : {}),
   })
 }

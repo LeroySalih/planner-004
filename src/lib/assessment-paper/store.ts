@@ -738,7 +738,11 @@ async function heldQuestionsMessage(db: Queryable, submissionId: string): Promis
   }>(
     `select q.question_id, q.label, q.activity_id,
             nullif(btrim(coalesce(q.mark_scheme, '')), '') is null as no_mark_scheme,
-            case when a.status = 'unreadable' and x.type = any($2::text[]) then a.transcription end as unshowable
+            case when a.status = 'unreadable' and x.type = any($2::text[])
+                 then case when a.provenance = 'teacher'
+                           then 'the marker held it for you to check (see the marker''s note); mark it yourself.'
+                           else a.transcription end
+            end as unshowable
        from submissions s
        join activities x on x.activity_id = s.activity_id
        join activity_questions q on q.activity_id = s.activity_id
@@ -1003,12 +1007,20 @@ export async function completeAssessmentRead(input: {
  * sent again) writes nothing. `markerEvidence` (a PowerPoint
  * assessment's marker's note on the evidence, teacher-only) is stored on the
  * question's answer as marker_evidence; an assessment paper passes none.
+ *
+ * `hold` (a practical assessment's marker found the part needs a value its
+ * report gives as UNKNOWN) holds the question for the teacher as a required
+ * screenshot DINO cannot show is held at the read: no AI marks (any 'ai' rows
+ * on it go; teacher rows stay), the answer set 'unreadable' with the reason
+ * as its text (a teacher-edited answer keeps its text), so heldQuestionsMessage
+ * names it in mark_error and the results panel asks the teacher to check it.
  */
 export async function completeAssessmentQuestionMark(input: {
   submissionId: string
   jobId: string
   rows: QuestionCriterionMarkInput[]
   markerEvidence?: { questionId: string; text: string | null }
+  hold?: { questionId: string; reason: string }
 }): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean; superseded?: boolean }> {
   return inTransaction(async (client) => {
     await lockAssessmentSubmission(client, input.submissionId)
@@ -1018,6 +1030,24 @@ export async function completeAssessmentQuestionMark(input: {
     const status = await assessmentJobStatus(client, input.jobId)
     if (status !== "processing" && status !== "error") {
       return { totals: await readTotals(client, input.submissionId), complete: false, superseded: true }
+    }
+    if (input.hold) {
+      if (input.rows.length > 0) throw new Error("A held question has no marks to record.")
+      await client.query(
+        `delete from submission_question_criterion_marks
+          where submission_id = $1 and question_id = $2 and provenance = 'ai'`,
+        [input.submissionId, input.hold.questionId],
+      )
+      await client.query(
+        `update submission_question_answers
+            set status = 'unreadable',
+                kind = case when provenance = 'teacher' then kind else 'mixed' end,
+                transcription = case when provenance = 'teacher' then transcription else $3 end,
+                updated_at = timezone('utc', now())
+          where submission_id = $1 and question_id = $2`,
+        [input.submissionId, input.hold.questionId, heldForTeacherText(input.hold.reason)],
+      )
+      await recomputeAssessmentSubmission(client, input.submissionId)
     }
     if (input.rows.length > 0) await writeCriterionMarks(client, input.submissionId, input.rows, "ai")
     if (input.markerEvidence) {
@@ -1030,6 +1060,11 @@ export async function completeAssessmentQuestionMark(input: {
     const complete = await closeAssessmentJob(client, input.submissionId, input.jobId)
     return { totals: await readTotals(client, input.submissionId), complete }
   })
+}
+
+/** The held answer's text: why the marker held it, for the teacher. */
+export function heldForTeacherText(reason: string) {
+  return `the marker could not check it: ${reason.trim().replace(/[.;\s]+$/, "")}; mark it yourself.`
 }
 
 /**
@@ -1412,7 +1447,10 @@ export async function confirmAssessmentQuestionMarks(
  * Questions awaiting a teacher's check, on the latest submission of each
  * pupil (or on `submissionId` alone): marked by the model ('ai' rows remain)
  * and either set to 'ai_check', read as a sketch, or read as unreadable,
- * unless the question is teacher-only.
+ * unless the question is teacher-only. On a practical assessment, also a
+ * question held for the teacher (answer 'unreadable': a screenshot DINO
+ * cannot show, or a value the marker found UNKNOWN) that no teacher has
+ * marked yet.
  */
 export async function listQuestionsAwaitingCheck(
   activityId: string,
@@ -1431,12 +1469,19 @@ export async function listQuestionsAwaitingCheck(
        left join submission_question_answers a
          on a.submission_id = l.submission_id and a.question_id = q.question_id
       where q.marking <> 'teacher'
-        and (q.marking = 'ai_check' or a.kind = 'sketch' or a.status = 'unreadable')
-        and exists (select 1 from submission_question_criterion_marks m
-                     where m.submission_id = l.submission_id and m.question_id = q.question_id
-                       and m.provenance = 'ai')
+        and (
+          ((q.marking = 'ai_check' or a.kind = 'sketch' or a.status = 'unreadable')
+            and exists (select 1 from submission_question_criterion_marks m
+                         where m.submission_id = l.submission_id and m.question_id = q.question_id
+                           and m.provenance = 'ai'))
+          or (a.status = 'unreadable'
+            and exists (select 1 from activities x where x.activity_id = $1 and x.type = any($3::text[]))
+            and not exists (select 1 from submission_question_criterion_marks m
+                             where m.submission_id = l.submission_id and m.question_id = q.question_id
+                               and m.provenance = 'teacher'))
+        )
       order by l.submission_id, q.position, q.label`,
-    [activityId, submissionId],
+    [activityId, submissionId, PRACTICAL_ASSESSMENT_TYPES],
   )
   return rows.map((row) => ({ submissionId: row.submission_id, questionId: row.question_id }))
 }

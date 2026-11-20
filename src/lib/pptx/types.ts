@@ -28,6 +28,43 @@ export type HeaderFooterFlags = {
 
 export type PlaceholderRef = { type: string; idx: number | null }
 
+// Where an effective formatting value comes from: the part the item is on
+// ("slide", "layout" or "master" for the item's own part, else the part it
+// inherits from), the presentation's default text style, the shape's own
+// style (p:style, theme references), or PowerPoint's built-in default.
+export type FormatSource = "slide" | "layout" | "master" | "presentation" | "shape style" | "default"
+
+// An effective value and its source. A null value is one the reader could
+// not resolve (e.g. a theme colour the theme lacks): reported as UNKNOWN.
+export type Sourced<T> = { value: T | null; from: FormatSource }
+
+export type EffectiveTextStyle = {
+  sizePt: Sourced<number>
+  // themeFont: the font is the theme's heading (+mj) or body (+mn) font.
+  font: Sourced<string> & { themeFont: "heading" | "body" | null }
+  colour: Sourced<Colour>
+  bold: Sourced<boolean>
+  italic: Sourced<boolean>
+  underline: Sourced<boolean>
+}
+
+// The effective fill of a shape or placeholder. colour/stops are null where
+// a theme colour could not be resolved (unresolved is then true).
+export type FillInfo = {
+  kind: "none" | "solid" | "gradient" | "picture" | "pattern" | "group" | "unknown"
+  colour: Colour | null
+  transparencyPercent: number | null
+  stops: (Colour | null)[] | null
+  from: FormatSource
+  viaStyle: boolean
+  unresolved: boolean
+}
+
+// Horizontal paragraph alignment ("left", "centre" …; "mixed" when the
+// paragraphs differ) and vertical anchor ("top", "middle", "bottom") of a
+// shape's text.
+export type TextLayout = { align: Sourced<string>; anchor: Sourced<string> }
+
 export type TextRunStyle = {
   bold: boolean
   italic: boolean
@@ -35,6 +72,8 @@ export type TextRunStyle = {
   sizePt: number | null
   font: string | null
   colour: Colour | null
+  // Each value with its source (powerpoint-reader-2 on).
+  effective?: EffectiveTextStyle
 }
 
 export type Paragraph = {
@@ -44,11 +83,16 @@ export type Paragraph = {
   bulleted: boolean
   bulletChar: string | null
   align: string | null
+  alignFrom?: FormatSource
+  // The paragraph's own runs, summarised (powerpoint-reader-2 on).
+  textSummary?: TextSummary | null
 }
 
 export type Field = {
   type: string
   text: string
+  // The field run's language (rPr lang), e.g. "en-GB".
+  lang?: string | null
   // A date/time field PowerPoint refreshes when the file is opened or shown.
   updatesAutomatically: boolean
 }
@@ -64,6 +108,10 @@ export type FooterItem = {
   typedDate: boolean
   // A slide number placeholder holding a typed number rather than the field.
   typedNumber: boolean
+  alignFrom?: FormatSource
+  // The effective style of the placeholder's text (its first run, else the
+  // first paragraph's level), each value with its source.
+  style?: EffectiveTextStyle | null
 }
 
 export type LinkKind =
@@ -107,6 +155,9 @@ export type TextSummary = {
   fonts: string[]
   // PowerPoint's "shrink text on overflow" scale, e.g. 92.5.
   autofitScalePercent: number | null
+  underline?: "yes" | "no" | "mixed"
+  // Properties some run's value of could not be resolved ("size", "colour", "font").
+  unknown?: string[]
 }
 
 export type ShapeInfo = {
@@ -126,6 +177,11 @@ export type ShapeInfo = {
   tableRows: string[][] | null
   inGroup: string | null
   pictureFill: PictureFill | null
+  fill?: FillInfo | null
+  // Null for a shape with no text body (pictures, tables …).
+  textLayout?: TextLayout | null
+  // Where on the slide the box's centre is ("bottom left" …).
+  corner?: string | null
 }
 
 export type PictureInfo = {
@@ -151,6 +207,8 @@ export type PictureInfo = {
   transparencyPercent: number
   // How much of the slide the picture's box covers, 0–100.
   slideCoveragePercent: number | null
+  // The box's size on the slide in pixels at 96 dpi (EMU / 9525).
+  slidePx?: { width: number; height: number } | null
   // Which supplied image it is; null when no supplied images were given.
   match: ImageMatch | null
 }
@@ -175,11 +233,17 @@ export type PlaceholderInfo = {
   align: string | null
   text: string
   fields: Field[]
+  textLayout?: TextLayout | null
+  fill?: FillInfo | null
+  // The effective style of level-1 text in it, with sources.
+  style?: EffectiveTextStyle | null
 }
 
 export type TitleStyle = TextRunStyle & {
   // Attributes set on the slide itself rather than coming from the master.
   overridesOnSlide: string[]
+  textLayout?: TextLayout | null
+  fill?: FillInfo | null
 }
 
 export type MasterInfo = {

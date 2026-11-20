@@ -109,7 +109,7 @@ import type { PracticalUploadSlot, PracticalUploadSlotKind } from "@/types"
 // paper; slots, headings and sections are the teacher's data.
 
 /** Bump when a reader's output changes, so stored evidence is read again. */
-export const READER_VERSION = "powerpoint-reader-1"
+export const READER_VERSION = "powerpoint-reader-2"
 /** The database reader's part of an accdb file's cache key: bump when src/lib/accdb's output changes. */
 export const DATABASE_READER_VERSION = "database-reader-1"
 /** The evidence document reader's part of a .docx file's cache key: bump when src/lib/docx/evidence.ts's output changes. */

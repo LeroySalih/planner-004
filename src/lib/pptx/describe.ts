@@ -8,19 +8,142 @@ import type {
   BackgroundInfo,
   Box,
   Colour,
+  EffectiveTextStyle,
+  Field,
+  FillInfo,
+  FormatSource,
   FooterItem,
   HeaderFooterFlags,
   ImageUse,
+  LayoutInfo,
   Link,
   PictureInfo,
+  PlaceholderInfo,
   PresentationReport,
   ShapeInfo,
+  TextLayout,
   TextRunStyle,
   TextSummary,
   TransitionInfo,
 } from "./types"
 
 const FOOTER_PLACEHOLDERS = new Set(["dt", "ftr", "sldNum", "hdr"])
+
+/** What the report says for a value the reader could not resolve. */
+export const UNKNOWN_VALUE = "UNKNOWN (reader could not resolve)"
+
+// The part a line describes: its own values are "set on this <part>".
+type Here = "slide" | "layout" | "master"
+
+function sourceText(from: FormatSource, here: Here) {
+  if (from === here) return `set on this ${here}`
+  switch (from) {
+    case "slide":
+      return "set on the slide"
+    case "layout":
+      return "from layout"
+    case "master":
+      return "from master"
+    case "presentation":
+      return "from the presentation's default text style"
+    case "shape style":
+      return "from the shape's style"
+    default:
+      return "default"
+  }
+}
+
+type Item = { text: string; from: FormatSource }
+
+// Values grouped by source, in order: "44 pt, font "Calibri" [from master];
+// not bold, not italic [default]".
+function grouped(items: Item[], here: Here) {
+  const groups = new Map<FormatSource, string[]>()
+  for (const item of items) groups.set(item.from, [...(groups.get(item.from) ?? []), item.text])
+  return [...groups].map(([from, texts]) => `${texts.join(", ")} [${sourceText(from, here)}]`).join("; ")
+}
+
+function styleItems(s: EffectiveTextStyle): Item[] {
+  const font = s.font.value === null
+    ? `font ${UNKNOWN_VALUE}`
+    : `font "${s.font.value}"${s.font.themeFont ? ` (theme ${s.font.themeFont} font)` : ""}`
+  return [
+    { text: s.sizePt.value === null ? `size ${UNKNOWN_VALUE}` : `${s.sizePt.value} pt`, from: s.sizePt.from },
+    { text: font, from: s.font.from },
+    { text: s.colour.value === null ? `colour ${UNKNOWN_VALUE}` : colour(s.colour.value), from: s.colour.from },
+    { text: s.bold.value ? "bold" : "not bold", from: s.bold.from },
+    { text: s.italic.value ? "italic" : "not italic", from: s.italic.from },
+    { text: s.underline.value ? "underlined" : "not underlined", from: s.underline.from },
+  ]
+}
+
+function fillText(f: FillInfo) {
+  const clear = f.transparencyPercent ? `, transparency ${f.transparencyPercent}%` : ""
+  switch (f.kind) {
+    case "none":
+      return "no fill"
+    case "solid":
+      return `fill solid ${f.colour ? colour(f.colour) : UNKNOWN_VALUE}${clear}`
+    case "gradient":
+      return `fill gradient (${(f.stops ?? []).map((c) => (c ? colour(c) : UNKNOWN_VALUE)).join(" → ")})`
+    case "picture":
+      return `fill picture${clear}`
+    case "pattern":
+      return "fill pattern"
+    case "group":
+      return "fill from its group"
+    default:
+      return `fill ${UNKNOWN_VALUE}`
+  }
+}
+
+function fillItem(f: FillInfo): Item {
+  return { text: fillText(f), from: f.viaStyle ? "shape style" : f.from }
+}
+
+function layoutItems(t: TextLayout): Item[] {
+  return [
+    {
+      text: t.align.value === "mixed"
+        ? "paragraphs aligned differently (see each paragraph)"
+        : `text aligned ${t.align.value ?? UNKNOWN_VALUE}`,
+      from: t.align.from,
+    },
+    { text: `anchored ${t.anchor.value ?? UNKNOWN_VALUE}`, from: t.anchor.from },
+  ]
+}
+
+// PowerPoint's date formats 1..13 (Insert > Date and Time), as ECMA-376 gives
+// them in US English; the field's language sets the order and the names.
+const DATE_FORMATS: Record<string, string> = {
+  datetime: "the default date format",
+  datetime1: "short date, MM/DD/YYYY style",
+  datetime2: "long date with the weekday, Day, Month DD, YYYY style",
+  datetime3: "DD Month YYYY style",
+  datetime4: "Month DD, YYYY style",
+  datetime5: "DD-Mon-YY style",
+  datetime6: "Month YY style",
+  datetime7: "Mon-YY style",
+  datetime8: "date and time, MM/DD/YYYY hh:mm AM/PM style",
+  datetime9: "date and time, MM/DD/YYYY hh:mm:ss AM/PM style",
+  datetime10: "time, hh:mm style",
+  datetime11: "time, hh:mm:ss style",
+  datetime12: "time, hh:mm AM/PM style",
+  datetime13: "time, hh:mm:ss AM/PM style",
+  datetimeFigureOut: "the template's own date",
+}
+
+function dateField(f: Field, here: Here) {
+  // A layout's date is only the template for its slides: type and language.
+  if (here === "layout") return `date field ${f.type}${f.lang ? ` (language ${f.lang})` : ""}`
+  const format = DATE_FORMATS[f.type]
+  const details = [
+    ...(format ? [`format ${format} in the field's language`] : []),
+    ...(f.lang !== undefined ? [`language ${f.lang ?? "not set"}`] : []),
+    "updates automatically",
+  ]
+  return `date field ${f.type} (${details.join(", ")}; showing ${quote(f.text)})`
+}
 
 function n2(value: number) {
   return value.toFixed(2)
@@ -57,13 +180,31 @@ function runStyle(s: TextRunStyle) {
 }
 
 function textSummary(t: TextSummary) {
-  const sizes = t.sizesPt.length === 0
-    ? "size not set"
+  const unknown = new Set(t.unknown ?? [])
+  const sizeList = t.sizesPt.length === 0
+    ? (t.unknown ? UNKNOWN_VALUE : "size not set")
     : t.sizesPt.length === 1 ? `${t.sizesPt[0]} pt` : `${t.sizesPt[0]}–${t.sizesPt[t.sizesPt.length - 1]} pt`
+  const sizes = unknown.has("size") && t.sizesPt.length > 0 ? `${sizeList} and size ${UNKNOWN_VALUE}` : sizeList
   const scaled = t.autofitScalePercent !== null ? ` (shrunk to ${t.autofitScalePercent}% to fit the box)` : ""
   const flag = (value: TextSummary["bold"], on: string) => (value === "yes" ? on : value === "no" ? `not ${on}` : `partly ${on}`)
-  const colours = t.colours.length ? t.colours.map((c) => colour(c)).join(" / ") : "colour not set"
-  return `text ${sizes}${scaled}, ${flag(t.bold, "bold")}, ${flag(t.italic, "italic")}, ${colours}`
+  const colourList = [...t.colours.map((c) => colour(c)), ...(unknown.has("colour") ? [`colour ${UNKNOWN_VALUE}`] : [])]
+  const colours = colourList.length ? colourList.join(" / ") : "colour not set"
+  const parts = [`text ${sizes}${scaled}`, flag(t.bold, "bold"), flag(t.italic, "italic")]
+  if (t.underline) parts.push(flag(t.underline, "underlined"))
+  parts.push(colours)
+  // Fonts are printed from powerpoint-reader-2 on (underline marks such a report).
+  if (t.underline) {
+    const fonts = [...t.fonts.map((f) => `"${f}"`), ...(unknown.has("font") ? [UNKNOWN_VALUE] : [])]
+    parts.push(`font ${fonts.join(" / ")}`)
+  }
+  return parts.join(", ")
+}
+
+// The paragraph's own formatting, when the shape's runs are not all alike.
+function mixedRuns(t: TextSummary | null) {
+  if (!t) return false
+  return t.sizesPt.length > 1 || t.colours.length > 1 || t.fonts.length > 1 ||
+    t.bold === "mixed" || t.italic === "mixed" || t.underline === "mixed"
 }
 
 function background(bg: BackgroundInfo | null) {
@@ -87,12 +228,12 @@ function headerFooter(hf: HeaderFooterFlags | null) {
   return `header/footer flags: date ${yesNo(hf.date)}, footer ${yesNo(hf.footer)}, slide number ${yesNo(hf.slideNumber)}, header ${yesNo(hf.header)}`
 }
 
-function footerItem(item: FooterItem) {
+function footerItem(item: FooterItem, here: Here) {
   const content: string[] = []
   for (const f of item.fields) {
     content.push(
       f.type.startsWith("datetime")
-        ? `date field ${f.type} (updates automatically; showing ${quote(f.text)})`
+        ? dateField(f, here)
         : f.type === "slidenum" ? "slide number field" : `field ${f.type}`,
     )
   }
@@ -101,13 +242,16 @@ function footerItem(item: FooterItem) {
   const typed = item.typedDate
     ? " — a typed date, NOT a date field, so it does not update"
     : item.typedNumber ? " — a typed number, NOT the slide number field, so it is the same on every slide" : ""
-  return `${item.kind} placeholder "${item.name}", aligned ${item.align ?? "left"}, ${box(item.box)}: ${content.join("; ")}${typed}`
+  const aligned = item.alignFrom ? `aligned ${item.align ?? UNKNOWN_VALUE} [${sourceText(item.alignFrom, here)}]` : `aligned ${item.align ?? "left"}`
+  const style = item.style ? `; text ${grouped(styleItems(item.style), here)}` : ""
+  return `${item.kind} placeholder "${item.name}", ${aligned}, ${box(item.box)}: ${content.join("; ")}${typed}${style}`
 }
 
 function picture(p: PictureInfo) {
   const parts = [`picture "${p.name}"`]
   if (p.descr) parts.push(`(file name/alt text ${quote(p.descr)})`)
-  parts.push(box(p.box) + (p.boxInherited ? " (from the placeholder)" : ""))
+  const px = p.slidePx ? ` (${p.slidePx.width} × ${p.slidePx.height} px on the slide at 96 dpi)` : ""
+  parts.push(box(p.box) + px + (p.boxInherited ? " (from the placeholder)" : ""))
   if (p.placeholder) {
     parts.push(`in ${p.placeholder.type} placeholder${p.placeholder.idx !== null ? ` idx ${p.placeholder.idx}` : ""}${p.placeholderName ? ` "${p.placeholderName}"` : ""}`)
   } else {
@@ -115,7 +259,7 @@ function picture(p: PictureInfo) {
   }
   if (p.corner) parts.push(`sits ${p.corner}`)
   parts.push(`media ${p.mediaPart ?? p.linkedTarget ?? "missing"}`)
-  if (p.pixelWidth && p.pixelHeight) parts.push(`${p.pixelWidth} × ${p.pixelHeight} px`)
+  if (p.pixelWidth && p.pixelHeight) parts.push(`image file ${p.pixelWidth} × ${p.pixelHeight} px`)
   if (p.cropPercent) {
     const c = p.cropPercent
     if (c.left || c.top || c.right || c.bottom) parts.push(`cropped l ${c.left}% t ${c.top}% r ${c.right}% b ${c.bottom}%`)
@@ -129,21 +273,33 @@ function picture(p: PictureInfo) {
   return parts.join(", ") + (p.match ? `; image: ${describeMatch(p.match)}` : "")
 }
 
-function shape(s: ShapeInfo) {
+function shape(s: ShapeInfo, here: Here) {
   const ph = s.placeholder
     ? `${s.placeholder.type} placeholder${s.placeholder.idx !== null ? ` idx ${s.placeholder.idx}` : ""}`
     : "not a placeholder"
   const empty = s.box && (s.box.widthCm === 0 || s.box.heightCm === 0) ? " — ZERO-SIZE BOX" : ""
-  const head = `${s.kind} "${s.name}" (${ph}${s.geometry && s.geometry !== "rect" ? `, ${s.geometry}` : ""}${s.inGroup ? `, in group "${s.inGroup}"` : ""}${s.hidden ? ", hidden" : ""}), ${box(s.box)}${s.boxInherited ? " (from the layout/master)" : ""}${empty}`
+  const sits = s.corner ? `, sits ${s.corner}` : ""
+  const head = `${s.kind} "${s.name}" (${ph}${s.geometry && s.geometry !== "rect" ? `, ${s.geometry}` : ""}${s.inGroup ? `, in group "${s.inGroup}"` : ""}${s.hidden ? ", hidden" : ""}), ${box(s.box)}${s.boxInherited ? " (from the layout/master)" : ""}${sits}${empty}`
   const lines = [head]
+  // The slide's title placeholder has its own Title formatting line.
+  const titleOnSlide = here === "slide" && (s.placeholder?.type === "title" || s.placeholder?.type === "ctrTitle")
+  const format: Item[] = []
+  if (s.textLayout && !titleOnSlide && (s.paragraphs.some((p) => p.text.trim() !== "") || s.placeholder)) format.push(...layoutItems(s.textLayout))
+  if (s.fill && !titleOnSlide) format.push(fillItem(s.fill))
+  if (format.length) lines.push(`  ${grouped(format, here)}`)
   if (s.pictureFill) {
     const fill = s.pictureFill
     lines.push(`  filled with picture ${fill.mediaPart ?? "(missing)"}${fill.match ? `; image: ${describeMatch(fill.match)}` : ""}`)
   }
   if (s.textSummary) lines.push(`  ${textSummary(s.textSummary)}`)
+  const perParagraph = mixedRuns(s.textSummary)
+  const alignEach = s.textLayout?.align.value === "mixed"
   for (const p of s.paragraphs) {
     if (p.text.trim() === "") continue
-    lines.push(`  paragraph ${p.index + 1} (level ${p.level}${p.bulleted ? `, bullet ${p.bulletChar}` : ", no bullet"}): ${quote(p.text)}`)
+    const extra: string[] = []
+    if (alignEach && p.alignFrom) extra.push(`aligned ${p.align ?? UNKNOWN_VALUE} [${sourceText(p.alignFrom, here)}]`)
+    if (perParagraph && p.textSummary) extra.push(textSummary(p.textSummary))
+    lines.push(`  paragraph ${p.index + 1} (level ${p.level}${p.bulleted ? `, bullet ${p.bulletChar}` : ", no bullet"}${extra.length ? `; ${extra.join("; ")}` : ""}): ${quote(p.text)}`)
   }
   for (const [i, row] of (s.tableRows ?? []).entries()) {
     lines.push(`  row ${i + 1}: ${row.map((cell) => quote(cell)).join(" | ")}`)
@@ -206,6 +362,42 @@ function imageUse(u: ImageUse) {
   return `${u.where} ${useKind(u)}${size} (${how}${crop})`
 }
 
+// The footer items of a part, one line each; when their text styles are all
+// the same, the style is given once, naming the items it applies to.
+function footerBlock(items: FooterItem[], here: Here): string[] {
+  const styles = items.map((item) => (item.style ? grouped(styleItems(item.style), here) : null))
+  const shared = items.length > 1 && styles[0] !== null && styles.every((style) => style === styles[0])
+  if (!shared) return items.map((item) => footerItem(item, here))
+  const names = items.map((item) => item.kind)
+  const which = names.length === 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
+  return [
+    ...items.map((item) => footerItem({ ...item, style: undefined }, here)),
+    `text in the ${which} placeholders: ${styles[0]}`,
+  ]
+}
+
+// Whether a layout sets any text formatting, alignment, anchor or fill of
+// its placeholders itself (otherwise all of it is the slide master's).
+function setsFormatting(l: LayoutInfo) {
+  const own = (from: FormatSource | undefined) => from === "layout"
+  return (
+    l.placeholders.some((ph) =>
+      own(ph.textLayout?.align.from) || own(ph.textLayout?.anchor.from) || own(ph.fill?.from) ||
+      (ph.style ? Object.values(ph.style).some((v) => own(v.from)) : false)) ||
+    l.footerItems.some((item) => own(item.alignFrom) || (item.style ? Object.values(item.style).some((v) => own(v.from)) : false))
+  )
+}
+
+// A master or layout placeholder: its box, then how text in it is aligned,
+// anchored and filled (and, on the master, its level-1 text style).
+function placeholderLine(ph: PlaceholderInfo, here: Here) {
+  const head = `${ph.type}${ph.idx !== null ? ` idx ${ph.idx}` : ""} placeholder "${ph.name}" ${box(ph.box)}`
+  const items: Item[] = []
+  if (ph.textLayout) items.push(...layoutItems(ph.textLayout))
+  if (ph.fill) items.push(fillItem(ph.fill))
+  return items.length ? `${head}: ${grouped(items, here)}` : head
+}
+
 // One section of the description: PRESENTATION, SLIDE MASTER n, LAYOUT
 // MASTERS, SLIDE n, ACTION BUTTONS, NOTES MASTER, HANDOUT MASTER, SUPPLIED
 // IMAGES, MEDIA or WARNINGS. `text` starts with the title line.
@@ -247,12 +439,18 @@ export function describePresentationSections(report: PresentationReport): Presen
   for (const m of report.masters) {
     start(`master:${m.number}`, `SLIDE MASTER ${m.number}${m.name ? ` "${m.name}"` : ""}`)
     out.push(`  Background: ${background(m.background)}`)
-    out.push(`  Title style: ${runStyle(m.titleStyle)}`)
-    out.push(`  Body text style (level 1): ${runStyle(m.bodyStyle)}`)
+    out.push(`  Title style: ${m.titleStyle.effective ? grouped(styleItems(m.titleStyle.effective), "master") : runStyle(m.titleStyle)}`)
+    out.push(`  Body text style (level 1): ${m.bodyStyle.effective ? grouped(styleItems(m.bodyStyle.effective), "master") : runStyle(m.bodyStyle)}`)
     for (const pic of m.pictures) out.push(`  ${picture(pic)}`)
-    for (const s of m.shapes) out.push(...shape(s).map((line) => `  ${line}`))
-    out.push(`  Placeholders: ${m.placeholders.map((ph) => `${ph.type}${ph.idx !== null ? ` idx ${ph.idx}` : ""} "${ph.name}"`).join(", ") || "none"}`)
-    for (const item of m.footerItems) out.push(`  ${footerItem(item)}`)
+    for (const s of m.shapes) out.push(...shape(s, "master").map((line) => `  ${line}`))
+    if (m.placeholders.some((ph) => ph.textLayout !== undefined)) {
+      out.push("  Placeholders:")
+      // Footer placeholders are given in full below.
+      for (const ph of m.placeholders.filter((p) => !FOOTER_PLACEHOLDERS.has(p.type))) out.push(`    ${placeholderLine(ph, "master")}`)
+    } else {
+      out.push(`  Placeholders: ${m.placeholders.map((ph) => `${ph.type}${ph.idx !== null ? ` idx ${ph.idx}` : ""} "${ph.name}"`).join(", ") || "none"}`)
+    }
+    for (const line of footerBlock(m.footerItems, "master")) out.push(`  ${line}`)
     out.push(`  ${headerFooter(m.headerFooter)}`)
   }
 
@@ -270,12 +468,23 @@ export function describePresentationSections(report: PresentationReport): Presen
       const many = flaggedOff.length > 1
       out.push(`    The ${flaggedOff.join(" and ")} placeholder${many ? "s are" : " is"} still on this layout although ${many ? "their header/footer flags are" : "its header/footer flag is"} off`)
     }
-    out.push(`    Placeholders: ${l.placeholders.map((ph) => `${ph.type}${ph.idx !== null ? ` idx ${ph.idx}` : ""} "${ph.name}" ${box(ph.box)}`).join("; ") || "none"}`)
-    for (const item of l.footerItems) {
-      if (item.text || item.typedDate) out.push(`    ${footerItem(item)}`)
+    if (l.placeholders.some((ph) => ph.textLayout !== undefined) && setsFormatting(l)) {
+      // Footer placeholders are given in full below.
+      for (const ph of l.placeholders.filter((p) => !FOOTER_PLACEHOLDERS.has(p.type))) out.push(`    ${placeholderLine(ph, "layout")}`)
+      for (const line of footerBlock(l.footerItems, "layout")) out.push(`    ${line}`)
+    } else if (l.placeholders.some((ph) => ph.textLayout !== undefined)) {
+      // Nothing set on the layout: every value is the slide master's.
+      out.push(`    Placeholders: ${l.placeholders.map((ph) => `${ph.type}${ph.idx !== null ? ` idx ${ph.idx}` : ""} "${ph.name}" ${box(ph.box)}`).join("; ") || "none"}`)
+      for (const item of l.footerItems) out.push(`    ${footerItem({ ...item, style: undefined, alignFrom: undefined }, "layout")}`)
+      out.push("    Text formatting, alignment, anchors and fills: all as the slide master's (nothing set on this layout)")
+    } else {
+      out.push(`    Placeholders: ${l.placeholders.map((ph) => `${ph.type}${ph.idx !== null ? ` idx ${ph.idx}` : ""} "${ph.name}" ${box(ph.box)}`).join("; ") || "none"}`)
+      for (const item of l.footerItems) {
+        if (item.text || item.typedDate) out.push(`    ${footerItem(item, "layout")}`)
+      }
     }
     for (const pic of l.pictures) out.push(`    ${picture(pic)}`)
-    for (const s of l.shapes) out.push(...shape(s).map((line) => `    ${line}`))
+    for (const s of l.shapes) out.push(...shape(s, "layout").map((line) => `    ${line}`))
     if (l.background) out.push(`    Background override: ${background(l.background)}`)
     if (!l.showMasterShapes) out.push("    Hides the slide master's graphics")
     if (l.headerFooter) out.push(`    ${headerFooter(l.headerFooter)}`)
@@ -283,7 +492,12 @@ export function describePresentationSections(report: PresentationReport): Presen
 
   for (const s of report.slides) {
     start(`slide:${s.number}`, `SLIDE ${s.number} (layout: ${s.layoutName ?? "none"})${s.title ? ` ${quote(s.title)}` : " (no title)"}${s.hidden ? " — HIDDEN" : ""}`)
-    if (s.titleStyle) {
+    if (s.titleStyle?.effective) {
+      const t = s.titleStyle
+      const items = [...(t.textLayout ? layoutItems(t.textLayout) : []), ...styleItems(t.effective!), ...(t.fill ? [fillItem(t.fill)] : [])]
+      const mixed = t.overridesOnSlide.includes("runs formatted differently") ? " (its first run; the runs are formatted differently)" : ""
+      out.push(`  Title formatting${mixed}: ${grouped(items, "slide")}`)
+    } else if (s.titleStyle) {
       const overrides = s.titleStyle.overridesOnSlide.length ? `; set on this slide: ${s.titleStyle.overridesOnSlide.join(", ")}` : "; no formatting set on the slide"
       out.push(`  Title formatting: ${runStyle(s.titleStyle)}${overrides}`)
     }
@@ -296,7 +510,7 @@ export function describePresentationSections(report: PresentationReport): Presen
     out.push("  Shapes (footer placeholders are listed under footer items):")
     for (const sh of s.shapes) {
       if (sh.placeholder && FOOTER_PLACEHOLDERS.has(sh.placeholder.type)) continue
-      out.push(...shape(sh).map((line) => `    ${line}`))
+      out.push(...shape(sh, "slide").map((line) => `    ${line}`))
     }
     if (s.pictures.length) {
       out.push("  Pictures:")
@@ -304,7 +518,7 @@ export function describePresentationSections(report: PresentationReport): Presen
     }
     if (s.inheritedGraphics.length) out.push(`  From the master/layout: ${s.inheritedGraphics.join(", ")}`)
     out.push(`  Footer items on this slide: ${s.footerItems.length ? "" : "none (no date, footer or slide number shown)"}`)
-    for (const item of s.footerItems) out.push(`    ${footerItem(item)}`)
+    for (const line of footerBlock(s.footerItems, "slide")) out.push(`    ${line}`)
     // A full-slide picture behind everything is a background, not an overlap.
     const behindBackground = s.overlaps.filter((o) => o.fullSlidePicture !== null && o.inFront !== o.fullSlidePicture)
     const real = s.overlaps.filter((o) => !o.footerPlaceholders && !behindBackground.includes(o))
@@ -363,7 +577,7 @@ export function describePresentationSections(report: PresentationReport): Presen
   for (const nm of [report.notesMaster, report.handoutMaster]) {
     if (!nm) continue
     start(nm.kind === "notes master" ? "notes-master" : "handout-master", nm.kind.toUpperCase())
-    for (const item of nm.placeholders) out.push(`  ${footerItem(item)}`)
+    for (const item of nm.placeholders) out.push(`  ${footerItem({ ...item, style: undefined, alignFrom: undefined }, "master")}`)
     out.push(`  ${headerFooter(nm.headerFooter)}`)
     if (nm.kind === "notes master") {
       for (const n of report.notesSlideFooters) {

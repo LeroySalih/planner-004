@@ -121,6 +121,8 @@ export interface PowerPointMarkingCallRecord {
     criteria: MarkReplyRow[]
     /** Teacher-only: what in the evidence decided the marks. */
     evidenceNote: string
+    /** The marker held the part for the teacher, with this reason. */
+    holdForTeacher?: string
     raw: string
   }
   durationMs: number
@@ -131,14 +133,25 @@ export interface PowerPointMarkingCallRecord {
 // property order (structured output keeps it; every stored reply follows it),
 // so the deciding facts are written before the marks rather than as a
 // justification of marks already given.
+//
+// hold_for_teacher (optional): the part needs a value the evidence gives as
+// UNKNOWN, so it is held for the teacher with no marks rather than given 0.
 export const POWERPOINT_MARK_RESPONSE_SCHEMA = {
   type: "object",
   properties: {
     evidence_note: { type: "string" },
     ...MARK_RESPONSE_SCHEMA.properties,
+    hold_for_teacher: {
+      type: "object",
+      properties: { reason: { type: "string" } },
+      required: ["reason"],
+    },
   },
   required: ["evidence_note", "criteria"],
 } as const
+
+/** The longest hold reason kept; the teacher reads it in the results panel. */
+const HOLD_REASON_MAX_CHARS = 500
 
 export const POWERPOINT_MARK_SYSTEM = `You are an experienced secondary school teacher marking one part of a pupil's practical PowerPoint assessment: a presentation the pupil built, with any printouts and evidence document they handed in.
 
@@ -154,6 +167,8 @@ The part's marks are recorded under success criteria. These are labels for filin
 
 The evidence is only what is given for this part:
 - The PRESENTATION REPORT is read directly from the pupil's file. Its settings, text, fonts, sizes, colours, positions, backgrounds, transitions, animations, links and images are exact facts: trust it over how anything looks. Never infer a setting the report does not state.
+- Each formatting value in the report is the effective value, the one PowerPoint shows, followed in square brackets by where it comes from: set on this slide (layout, master), from layout, from master, from the presentation's default text style, from the shape's style, or default (PowerPoint's built-in value). A value from the master, a layout or the default is as real as one set on the slide: mark it as stated.
+- When a marking point needs a value that the report gives as UNKNOWN (reader could not resolve), do not give 0 for it and do not guess: set hold_for_teacher with a reason naming the value and where it is (slide, placeholder or shape), and the teacher checks the part. Use hold_for_teacher only for such an UNKNOWN value, never for a value the report states or for evidence that is missing.
 - A SCREENSHOT earns a mark only when what the mark scheme asks for can be read in it. Never infer a setting a screenshot does not show.
 - A SLIDE picture is the slide rendered by LibreOffice. Use it for layout and appearance only; fonts and effects may differ slightly from PowerPoint, so take exact settings from the report.
 - A FILE is a printout or document the pupil handed in, attached whole.
@@ -522,7 +537,8 @@ Reply with exactly one entry per success_criteria_id above, using it exactly as 
 - why_not_awarded: which mark scheme points the pupil missed for the marks not given here, naming the evidence (${input.evidenceNames ?? POWERPOINT_EVIDENCE_NAMES}). Empty when the entry is full.
 - how_to_improve: what to do next time to earn those mark scheme points. Empty when the entry is full.
 Base both comments on the mark scheme and the evidence only; never mention or quote the success criteria.
-- evidence_note (teacher only, written first): point by point, the conditions and the deciding facts in the evidence, whether each point is earned, and anything you could not see or check.`
+- evidence_note (teacher only, written first): point by point, the conditions and the deciding facts in the evidence, whether each point is earned, and anything you could not see or check.
+- hold_for_teacher: leave it out, unless a marking point needs a value the evidence gives as UNKNOWN (reader could not resolve). Then give its reason (which value, where), and still give one entry per success_criteria_id: the part is held for the teacher and none of these marks is recorded.`
 }
 
 /**
@@ -540,6 +556,8 @@ export async function markPowerPointQuestion(
   evidenceNote: string | null
   call: PowerPointMarkingCallRecord | null
   skipped: string | null
+  /** The marker held the part for the teacher (an UNKNOWN value): no rows, this reason. */
+  hold?: string | null
 }> {
   const questions = await readAssessmentQuestions(input.activityId)
   const question = questions.find((q) => q.questionId === input.questionId)
@@ -628,27 +646,13 @@ export async function markPowerPointQuestion(
     maxTokens: 16000,
   })
 
-  const replyRows = validateMarkReply(reply.data, criteria)
-  for (const row of replyRows) {
-    assertUncorruptedModelText(row.whyNotAwarded, { model, field: `why_not_awarded (${question.label}, ${row.successCriteriaId})` })
-    assertUncorruptedModelText(row.howToImprove, { model, field: `how_to_improve (${question.label}, ${row.successCriteriaId})` })
-  }
   const rawNote = (reply.data as { evidence_note?: unknown } | null)?.evidence_note
   if (typeof rawNote !== "string") throw new Error("Marking reply has no evidence_note.")
   const evidenceNote = rawNote.trim()
   assertUncorruptedModelText(evidenceNote, { model, field: `evidence_note (${question.label})`, mode: "note" })
 
-  return {
-    rows: replyRows.map((row) => ({
-      questionId: question.questionId,
-      successCriteriaId: row.successCriteriaId,
-      awarded: row.awarded,
-      whyNotAwarded: row.whyNotAwarded || null,
-      howToImprove: row.howToImprove || null,
-    })),
-    evidenceNote: evidenceNote || null,
-    skipped: null,
-    call: {
+  const callRecord = (recorded: MarkReplyRow[], note: string, heldFor: string | null): PowerPointMarkingCallRecord => {
+    return {
       request: {
         provider: input.provider,
         model,
@@ -663,13 +667,59 @@ export async function markPowerPointQuestion(
         criteria: criteria.map((c) => ({ successCriteriaId: c.successCriteriaId, allocation: c.allocation })),
       },
       response: {
-        marksAwarded: replyRows.reduce((sum, row) => sum + row.awarded, 0),
-        criteria: replyRows,
-        evidenceNote,
+        marksAwarded: recorded.reduce((sum, row) => sum + row.awarded, 0),
+        criteria: recorded,
+        evidenceNote: note,
+        ...(heldFor !== null ? { holdForTeacher: heldFor } : {}),
         raw: reply.raw.slice(0, RAW_RESPONSE_LIMIT),
       },
       durationMs: reply.durationMs,
       attempts: reply.attempts,
-    },
+    }
   }
+
+  const hold = holdReason(reply.data)
+  if (hold !== null) {
+    assertUncorruptedModelText(hold, { model, field: `hold_for_teacher (${question.label})`, mode: "note" })
+    return {
+      rows: [],
+      evidenceNote: evidenceNote || null,
+      skipped: null,
+      hold,
+      call: callRecord([], evidenceNote, hold),
+    }
+  }
+
+  const replyRows = validateMarkReply(reply.data, criteria)
+  for (const row of replyRows) {
+    assertUncorruptedModelText(row.whyNotAwarded, { model, field: `why_not_awarded (${question.label}, ${row.successCriteriaId})` })
+    assertUncorruptedModelText(row.howToImprove, { model, field: `how_to_improve (${question.label}, ${row.successCriteriaId})` })
+  }
+  return {
+    rows: replyRows.map((row) => ({
+      questionId: question.questionId,
+      successCriteriaId: row.successCriteriaId,
+      awarded: row.awarded,
+      whyNotAwarded: row.whyNotAwarded || null,
+      howToImprove: row.howToImprove || null,
+    })),
+    evidenceNote: evidenceNote || null,
+    skipped: null,
+    hold: null,
+    call: callRecord(replyRows, evidenceNote, null),
+  }
+}
+
+/**
+ * The reply's hold_for_teacher reason, on one line and capped; null when the
+ * reply has none (absent, null, or an empty reason).
+ */
+export function holdReason(data: unknown): string | null {
+  const hold = (data as { hold_for_teacher?: unknown } | null)?.hold_for_teacher
+  if (!hold || typeof hold !== "object") return null
+  const reason = (hold as { reason?: unknown }).reason
+  if (typeof reason !== "string") return null
+  const text = reason.replace(/\s+/g, " ").trim()
+  if (!text) return null
+  return text.length > HOLD_REASON_MAX_CHARS ? `${text.slice(0, HOLD_REASON_MAX_CHARS - 1)}…` : text
 }

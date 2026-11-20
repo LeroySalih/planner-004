@@ -379,7 +379,7 @@ async function main() {
     const rText = describePresentation(r)
     check('text report: SUPPLIED IMAGES section with CAMEL not used', rText.includes('SUPPLIED IMAGES') && rText.includes('  CAMEL: not used') && rText.includes('  SHARK: not used'))
     check('text report: TURTLE on slide 3 with its size', rText.includes('  TURTLE: slide 3 picture "Picture 3", 10.00 × 7.50 cm (exact copy)'))
-    check('text report: the picture line names its image', rText.includes('media ppt/media/image3.jpg, 1200 × 900 px, aspect ratio kept; image: TURTLE (exact copy)'))
+    check('text report: the picture line names its image', rText.includes('media ppt/media/image3.jpg, image file 1200 × 900 px, aspect ratio kept; image: TURTLE (exact copy)'))
 
     // What pupils' copies look like: recompressed, resized, png ↔ jpg, a
     // transparent PNG flattened onto a dark screenshot window, and a picture

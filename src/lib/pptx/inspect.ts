@@ -5,19 +5,23 @@
 // file is run (macros are only reported).
 
 import { readAnimations } from "./animations"
-import { colourElement, describeColour, readColourMap, readTheme, resolveColour, type ColourMap, type Theme } from "./colour"
+import { colourElement, colourTransparency, describeColour, readColourMap, readTheme, resolveColour, type ColourMap, type Theme } from "./colour"
 import { PptxInspectError } from "./errors"
 import { readImageSize } from "./image-size"
 import { matchImage, type ImageMatch, type KnownImage } from "./known-images"
 import { openPackage, type PptxPackage, type Relationship } from "./package"
 import { transitionName } from "./effect-names"
-import { alignName, paragraphAlign, paragraphText, readParagraphs, runStyle, summariseText, textRuns, type StyleSources } from "./text"
+import { effectiveAlign, effectiveRunStyle, paragraphLevel, paragraphText, readParagraphs, runStyle, summariseText, textRuns, type StyleList, type StyleSources } from "./text"
 import type {
   ActionButton,
   BackgroundInfo,
   Box,
+  Colour,
   CropPercent,
+  EffectiveTextStyle,
   Field,
+  FillInfo,
+  FormatSource,
   FooterItem,
   HeaderFooterFlags,
   ImageUse,
@@ -35,6 +39,8 @@ import type {
   PresentationReport,
   ShapeInfo,
   SlideInfo,
+  Sourced,
+  TextLayout,
   TextRunStyle,
   TextSummary,
   TitleStyle,
@@ -53,6 +59,8 @@ export type InspectOptions = {
 }
 
 const EMU_PER_CM = 360000
+// PowerPoint's pixels: 96 per inch.
+const EMU_PER_PX = 9525
 
 function cm(emu: number) {
   return Math.round((emu / EMU_PER_CM) * 100) / 100
@@ -276,31 +284,148 @@ function colourMapFor(data: PartData): ColourMap {
   return {}
 }
 
-function textStylesFor(shape: PartShape, data: PartData, presentation: XmlElement): (XmlElement | null)[] {
+/** What a part's own formatting counts as: the slide, layout or master. */
+function sourceOf(kind: PartKind): FormatSource {
+  if (kind === "layout") return "layout"
+  if (kind === "slide" || kind === "notes") return "slide"
+  return "master"
+}
+
+// The master's text styles: titleStyle for title/ctrTitle, bodyStyle for
+// body/subTitle/obj (any other content placeholder), otherStyle for text
+// boxes, autoshapes and the date, footer and slide number placeholders.
+function textStylesFor(shape: PartShape, data: PartData, presentation: XmlElement): StyleList[] {
   const master = masterOf(data)
   const txStyles = child(master?.root, "txStyles")
-  const defaults = child(presentation, "defaultTextStyle")
+  const defaults: StyleList = { el: child(presentation, "defaultTextStyle"), from: "presentation" }
   if (master?.kind === "notes master" || master?.kind === "handout master") {
-    return [child(master.root, "notesStyle"), defaults]
+    return [{ el: child(master.root, "notesStyle"), from: "master" }, defaults]
   }
   if (shape.ph) {
     const t = normalType(shape.ph.type)
-    if (t === "title") return [child(txStyles, "titleStyle"), defaults]
-    if (t === "body") return [child(txStyles, "bodyStyle"), defaults]
+    if (t === "title") return [{ el: child(txStyles, "titleStyle"), from: "master" }, defaults]
+    if (t === "body") return [{ el: child(txStyles, "bodyStyle"), from: "master" }, defaults]
   }
-  return [child(txStyles, "otherStyle"), defaults]
+  return [{ el: child(txStyles, "otherStyle"), from: "master" }, defaults]
 }
 
 function styleSources(shape: PartShape, data: PartData, presentation: XmlElement, theme: Theme): StyleSources {
-  const lists: (XmlElement | null)[] = [child(shape.txBody, "lstStyle")]
+  const lists: StyleList[] = [{ el: child(shape.txBody, "lstStyle"), from: sourceOf(data.kind) }]
   let current: { shape: PartShape; data: PartData } | null = { shape, data }
   while (current) {
     current = inheritedPlaceholder(current.shape, current.data)
-    if (current) lists.push(child(current.shape.txBody, "lstStyle"))
+    if (current) lists.push({ el: child(current.shape.txBody, "lstStyle"), from: sourceOf(current.data.kind) })
   }
   lists.push(...textStylesFor(shape, data, presentation))
   const fontRef = shape.ph ? null : colourElement(path(shape.el, "style", "fontRef"))
-  return { lists, fontRefColour: fontRef, theme, colourMap: colourMapFor(data) }
+  return { lists, own: sourceOf(data.kind), fontRefColour: fontRef, theme, colourMap: colourMapFor(data) }
+}
+
+// ---------------------------------------------------------------- effective layout and fill
+
+const ANCHOR_NAMES: Record<string, string> = { t: "top", ctr: "middle", b: "bottom", just: "justified", dist: "distributed" }
+
+/**
+ * The vertical anchor of a shape's text (bodyPr anchor): the shape, then the
+ * layout and master placeholders it inherits from; PowerPoint's default is
+ * top. The master's text styles hold no anchor.
+ */
+function effectiveAnchor(shape: PartShape, data: PartData): Sourced<string> {
+  let current: { shape: PartShape; data: PartData } | null = { shape, data }
+  while (current) {
+    const anchor = attr(child(current.shape.txBody, "bodyPr"), "anchor")
+    if (anchor !== null) return { value: ANCHOR_NAMES[anchor] ?? anchor, from: sourceOf(current.data.kind) }
+    current = inheritedPlaceholder(current.shape, current.data)
+  }
+  return { value: "top", from: "default" }
+}
+
+/**
+ * Horizontal alignment of a shape's text: the one alignment its paragraphs
+ * with text share, "mixed" when they differ, or (no text) what level-1 text
+ * would get.
+ */
+function effectiveTextLayout(shape: PartShape, data: PartData, sources: StyleSources): TextLayout | null {
+  if (!shape.txBody) return null
+  const paragraphs = kids(shape.txBody, "p")
+  const withText = paragraphs.filter((p) => paragraphText(p).trim() !== "")
+  const aligns = (withText.length > 0 ? withText : paragraphs.slice(0, 1)).map((p) => effectiveAlign(child(p, "pPr"), paragraphLevel(p), sources))
+  if (aligns.length === 0) aligns.push(effectiveAlign(null, 0, sources))
+  const same = aligns.every((a) => a.value === aligns[0].value && a.from === aligns[0].from)
+  return {
+    align: same ? aligns[0] : { value: "mixed", from: sources.own },
+    anchor: effectiveAnchor(shape, data),
+  }
+}
+
+function colourOf(hex: string | null): Colour | null {
+  return hex ? { hex, name: describeColour(hex) } : null
+}
+
+/** A fill element (noFill, solidFill, gradFill …) as a FillInfo; null when `el` is none of them. */
+function readFill(el: XmlElement, ctx: { theme: Theme; colourMap: ColourMap; phClr: string | null }, from: FormatSource, viaStyle: boolean): FillInfo | null {
+  const base: FillInfo = { kind: "none", colour: null, transparencyPercent: null, stops: null, from, viaStyle, unresolved: false }
+  switch (el.name) {
+    case "noFill":
+      return base
+    case "solidFill": {
+      const colourEl = colourElement(el)
+      const colour = colourOf(resolveColour(colourEl, ctx.theme, ctx.colourMap, ctx.phClr))
+      return { ...base, kind: "solid", colour, transparencyPercent: colourTransparency(colourEl), unresolved: colour === null }
+    }
+    case "gradFill": {
+      const stops = kids(child(el, "gsLst"), "gs").map((gs) => colourOf(resolveColour(colourElement(gs), ctx.theme, ctx.colourMap, ctx.phClr)))
+      return { ...base, kind: "gradient", stops, unresolved: stops.some((c) => c === null) }
+    }
+    case "blipFill": {
+      const alpha = numAttr(child(child(el, "blip"), "alphaModFix"), "amt")
+      return { ...base, kind: "picture", transparencyPercent: alpha === null ? 0 : Math.round((100 - alpha / 1000) * 100) / 100 }
+    }
+    case "pattFill":
+      return { ...base, kind: "pattern" }
+    case "grpFill":
+      return { ...base, kind: "group" }
+    default:
+      return null
+  }
+}
+
+const FILL_ELEMENTS = new Set(["noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill"])
+
+/**
+ * The fill a shape shows: its own spPr fill, then its style's fillRef (a
+ * theme fill style with the reference's colour), then, for a placeholder, the
+ * same on the layout and master placeholders it inherits from. None by
+ * default. A fillRef naming a theme fill style the theme lacks is unresolved.
+ */
+function effectiveFill(shape: PartShape, data: PartData, theme: Theme): FillInfo {
+  const colourMap = colourMapFor(data)
+  let current: { shape: PartShape; data: PartData } | null = { shape, data }
+  while (current) {
+    const from = sourceOf(current.data.kind)
+    const own = child(current.shape.el, "spPr")?.children.find((c) => FILL_ELEMENTS.has(c.name))
+    if (own) return readFill(own, { theme, colourMap, phClr: null }, from, false)!
+    const fillRef = path(current.shape.el, "style", "fillRef")
+    if (fillRef) {
+      const idx = numAttr(fillRef, "idx") ?? 0
+      const unknown: FillInfo = { kind: "unknown", colour: null, transparencyPercent: null, stops: null, from, viaStyle: true, unresolved: true }
+      if (idx === 0) return { ...unknown, kind: "none", unresolved: false }
+      const style = idx >= 1001 ? theme.bgFillStyles[idx - 1001] : theme.fillStyles[idx - 1]
+      if (!style) return unknown
+      const phClr = resolveColour(colourElement(fillRef), theme, colourMap)
+      return readFill(style, { theme, colourMap, phClr }, from, true) ?? unknown
+    }
+    current = inheritedPlaceholder(current.shape, current.data)
+  }
+  return { kind: "none", colour: null, transparencyPercent: null, stops: null, from: "default", viaStyle: false, unresolved: false }
+}
+
+/** The effective style of a text body's first run with text, else of its first paragraph's level. */
+function firstRunStyle(txBody: XmlElement | null, sources: StyleSources): EffectiveTextStyle {
+  const run = textRuns(txBody).find((r) => r.text.trim() !== "")
+  if (run) return effectiveRunStyle(run.rPr, run.pPr, run.level, sources)
+  const p = kids(txBody, "p")[0] ?? null
+  return effectiveRunStyle(child(p, "endParaRPr"), child(p, "pPr"), p ? paragraphLevel(p) : 0, sources)
 }
 
 // ---------------------------------------------------------------- report pieces
@@ -310,7 +435,7 @@ function readFields(txBody: XmlElement | null): Field[] {
   for (const p of kids(txBody, "p")) {
     for (const fld of kids(p, "fld")) {
       const type = attr(fld, "type") ?? ""
-      out.push({ type, text: child(fld, "t")?.text ?? "", updatesAutomatically: type.startsWith("datetime") })
+      out.push({ type, text: child(fld, "t")?.text ?? "", updatesAutomatically: type.startsWith("datetime"), lang: attr(child(fld, "rPr"), "lang") })
     }
   }
   return out
@@ -644,6 +769,7 @@ async function readPicture(shape: PartShape, data: PartData, label: string, ctx:
   return {
     transparencyPercent: pictureTransparency(shape.el),
     slideCoveragePercent: rect ? coverage(rect, ctx.size) : null,
+    slidePx: rect ? { width: Math.round(rect.cx / EMU_PER_PX), height: Math.round(rect.cy / EMU_PER_PX) } : null,
     name: shape.name,
     descr: shape.descr,
     hidden: shape.hidden,
@@ -698,6 +824,8 @@ function textSummary(shape: PartShape, sources: StyleSources): TextSummary | nul
 function shapeInfo(shape: PartShape, data: PartData, ctx: Context): ShapeInfo {
   const { rect, inherited } = resolveRect(shape, data)
   const sources = styleSources(shape, data, ctx.presentation, ctx.theme)
+  const fontScale = numAttr(child(child(shape.txBody, "bodyPr"), "normAutofit"), "fontScale")
+  const hasSpPr = shape.el.name === "sp" || shape.el.name === "cxnSp"
   return {
     id: shape.id,
     name: shape.name,
@@ -708,11 +836,14 @@ function shapeInfo(shape: PartShape, data: PartData, ctx: Context): ShapeInfo {
     geometry: shape.geometry,
     box: toBox(rect),
     boxInherited: inherited,
-    paragraphs: readParagraphs(shape.txBody, sources),
+    paragraphs: readParagraphs(shape.txBody, sources, fontScale === null ? null : fontScale / 1000),
     textSummary: textSummary(shape, sources),
     tableRows: shape.kind === "table" ? tableRows(shape) : null,
     inGroup: shape.inGroup,
     pictureFill: null,
+    fill: hasSpPr && shape.kind !== "connector" ? effectiveFill(shape, data, ctx.theme) : null,
+    textLayout: effectiveTextLayout(shape, data, sources),
+    corner: corner(rect, ctx.size),
   }
 }
 
@@ -740,11 +871,14 @@ function footerItems(data: PartData, ctx: Context): FooterItem[] {
     const firstP = kids(shape.txBody, "p")[0] ?? null
     const fields = readFields(shape.txBody)
     const text = bodyText(shape.txBody)
+    const align = effectiveAlign(child(firstP, "pPr"), 0, sources)
     out.push({
       kind,
       name: shape.name,
       box: toBox(resolveRect(shape, data).rect),
-      align: alignName(paragraphAlign(child(firstP, "pPr"), 0, sources) ?? "l"),
+      align: align.value,
+      alignFrom: align.from,
+      style: firstRunStyle(shape.txBody, sources),
       text,
       fields,
       typedDate: kind === "date" && text !== "" && !fields.some((f) => f.type.startsWith("datetime")),
@@ -760,14 +894,20 @@ function placeholderInfos(data: PartData, ctx: Context): PlaceholderInfo[] {
     .map((shape) => {
       const sources = styleSources(shape, data, ctx.presentation, ctx.theme)
       const firstP = kids(shape.txBody, "p")[0] ?? null
+      // A placeholder's own prompt text is not what slides get: its level-1
+      // style is what new text in it takes.
+      const level = effectiveRunStyle(null, null, 0, sources)
       return {
         type: shape.ph!.type,
         idx: shape.ph!.idx,
         name: shape.name,
         box: toBox(resolveRect(shape, data).rect),
-        align: alignName(paragraphAlign(child(firstP, "pPr"), 0, sources) ?? "l"),
+        align: effectiveAlign(child(firstP, "pPr"), 0, sources).value,
         text: bodyText(shape.txBody),
         fields: readFields(shape.txBody),
+        textLayout: shape.txBody ? { align: effectiveAlign(null, 0, sources), anchor: effectiveAnchor(shape, data) } : null,
+        fill: shape.el.name === "sp" ? effectiveFill(shape, data, ctx.theme) : null,
+        style: level,
       }
     })
 }
@@ -796,7 +936,12 @@ function titleStyle(shape: PartShape, data: PartData, ctx: Context): TitleStyle 
     }
   }
   if (styles.some((s) => !sameStyle(s, styles[0]))) overrides.add("runs formatted differently")
-  return { ...styles[0], overridesOnSlide: [...overrides] }
+  return {
+    ...styles[0],
+    overridesOnSlide: [...overrides],
+    textLayout: effectiveTextLayout(shape, data, sources),
+    fill: effectiveFill(shape, data, ctx.theme),
+  }
 }
 
 function visibleOnSlide(shape: PartShape) {
@@ -1000,7 +1145,13 @@ export async function inspectPptx(buffer: Buffer, options: InspectOptions = {}):
     const styleOf = (shape: PartShape | undefined, which: "titleStyle" | "bodyStyle") => {
       const sources = shape
         ? styleSources(shape, data, presentation, ctx.theme)
-        : { lists: [path(data.root, "txStyles", which), child(presentation, "defaultTextStyle")], fontRefColour: null, theme: ctx.theme, colourMap: colourMapFor(data) }
+        : {
+            lists: [{ el: path(data.root, "txStyles", which), from: "master" as const }, { el: child(presentation, "defaultTextStyle"), from: "presentation" as const }],
+            own: "master" as const,
+            fontRefColour: null,
+            theme: ctx.theme,
+            colourMap: colourMapFor(data),
+          }
       return runStyle(null, null, 0, sources)
     }
     const { pictures, shapes } = await graphicsOf(data, label, ctx)

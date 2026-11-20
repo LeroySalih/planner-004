@@ -8,6 +8,9 @@ export type Theme = {
   colours: Record<string, string>
   majorFont: string | null
   minorFont: string | null
+  // fmtScheme fill styles, for a shape's style fillRef (idx 1.. and 1001..).
+  fillStyles: XmlElement[]
+  bgFillStyles: XmlElement[]
 }
 
 export type ColourMap = Record<string, string>
@@ -30,7 +33,7 @@ const PRESET_COLOURS: Record<string, string> = {
 }
 
 export function readTheme(root: XmlElement | null): Theme {
-  const theme: Theme = { colours: {}, majorFont: null, minorFont: null }
+  const theme: Theme = { colours: {}, majorFont: null, minorFont: null, fillStyles: [], bgFillStyles: [] }
   if (!root) return theme
   const elements = child(root, "themeElements")
   const scheme = child(elements, "clrScheme")
@@ -41,6 +44,9 @@ export function readTheme(root: XmlElement | null): Theme {
   const fonts = child(elements, "fontScheme")
   theme.majorFont = attr(child(child(fonts, "majorFont"), "latin"), "typeface")
   theme.minorFont = attr(child(child(fonts, "minorFont"), "latin"), "typeface")
+  const fmt = child(elements, "fmtScheme")
+  theme.fillStyles = kids(child(fmt, "fillStyleLst"))
+  theme.bgFillStyles = kids(child(fmt, "bgFillStyleLst"))
   return theme
 }
 
@@ -56,7 +62,9 @@ export function colourElement(fill: XmlElement | null): XmlElement | null {
   return fill.children.find((c) => COLOUR_ELEMENTS.has(c.name)) ?? null
 }
 
-export function resolveColour(el: XmlElement | null, theme: Theme, colourMap: ColourMap): string | null {
+// phClr: the colour a theme style's placeholder colour (schemeClr phClr)
+// stands for, i.e. the colour of the style reference (fillRef) using it.
+export function resolveColour(el: XmlElement | null, theme: Theme, colourMap: ColourMap, phClr: string | null = null): string | null {
   if (!el) return null
   let hex: string | null = null
   switch (el.name) {
@@ -76,6 +84,10 @@ export function resolveColour(el: XmlElement | null, theme: Theme, colourMap: Co
     }
     case "schemeClr": {
       const val = attr(el, "val") ?? ""
+      if (val === "phClr") {
+        hex = phClr
+        break
+      }
       const mapped = colourMap[val] ?? val
       hex = theme.colours[mapped] ?? theme.colours[val] ?? null
       break
@@ -152,6 +164,13 @@ function applyModifiers(hex: string, el: XmlElement) {
 }
 
 // A plain name for a colour, e.g. "dark blue", so a reader need not decode hex.
+/** 100 − alpha (alpha in 1/1000 %) of a colour element, 0 when not set. */
+export function colourTransparency(el: XmlElement | null): number {
+  const alpha = el?.children.find((c) => c.name === "alpha")
+  const val = alpha ? Number(attr(alpha, "val")) : NaN
+  return Number.isFinite(val) ? Math.round((100 - val / 1000) * 100) / 100 : 0
+}
+
 export function describeColour(hex: string | null): string | null {
   if (!hex) return null
   const [r, g, b] = hexToRgb(hex)
@@ -160,13 +179,15 @@ export function describeColour(hex: string | null): string | null {
   if (l > 0.95) return "white"
   const shade = l < 0.3 ? "dark " : l > 0.7 ? "light " : ""
   if (s < 0.12) return `${shade}grey`
+  // A very light colour (e.g. #FFF2CC) is "pale".
+  const tone = l > 0.85 ? "pale " : shade
   const hue =
     h < 15 || h >= 345 ? "red" :
-      h < 45 ? "orange" :
+      h < 40 ? "orange" :
         h < 70 ? "yellow" :
           h < 160 ? "green" :
             h < 190 ? "teal" :
               h < 250 ? "blue" :
                 h < 290 ? "purple" : "pink"
-  return `${shade}${hue}`
+  return `${tone}${hue}`
 }
