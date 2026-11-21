@@ -804,6 +804,21 @@ async function assessmentJobStatus(db: Queryable, jobId: string): Promise<string
   return rows[0]?.status ?? null
 }
 
+/**
+ * The questions a read job is limited to (its payload's questionIds, set when
+ * remark_assessment_activity re-reads a practical assessment for some
+ * questions only), or null for a read of every question. Kept on the job row,
+ * so a retried read keeps its scope and the worker needs no change.
+ */
+async function readJobScope(db: Queryable, jobId: string): Promise<Set<string> | null> {
+  const { rows } = await db.query<{ question_ids: unknown }>(
+    "select payload->'questionIds' as question_ids from external_jobs where job_id = $1",
+    [jobId],
+  )
+  const ids = rows[0]?.question_ids
+  return Array.isArray(ids) ? new Set(ids.map(String)) : null
+}
+
 async function closeAssessmentJob(db: Queryable, submissionId: string, jobId: string): Promise<boolean> {
   const closed = await db.query(
     `update external_jobs set status = 'done', updated_at = now()
@@ -859,6 +874,14 @@ export type ReadCompletion = {
  * On a practical assessment an 'unreadable' answer (a required screenshot
  * that is only pictures DINO cannot show) is held for the teacher, its
  * transcription saying why, like a question with no mark scheme.
+ *
+ * A read job whose payload names questionIds (readJobScope) does all of this
+ * for those questions only: the other questions' answers, marks and mark jobs
+ * are left as they are, whatever the reader made of them this time. (The
+ * reader's evidence cache, practical_submission_evidence, is per file, so
+ * the re-read refreshed it for the whole file; that is only the reader's own
+ * record and marks nothing.) mark_error is still worked out for the whole
+ * submission.
  */
 export async function completeAssessmentRead(input: {
   submissionId: string
@@ -881,13 +904,16 @@ export async function completeAssessmentRead(input: {
       }
     }
     const practical = await isPracticalActivity(client, activityId)
-    const questions = await readQuestions(client, activityId)
-    const questionIds = new Set(questions.map((q) => q.questionId))
+    const allQuestions = await readQuestions(client, activityId)
+    const questionIds = new Set(allQuestions.map((q) => q.questionId))
+    const scope = await readJobScope(client, jobId)
+    const questions = scope ? allQuestions.filter((q) => scope.has(q.questionId)) : allQuestions
 
     for (const answer of input.answers) {
       if (!questionIds.has(answer.questionId)) {
         throw new Error(`Question ${answer.questionId} is not on this assessment paper.`)
       }
+      if (scope && !scope.has(answer.questionId)) continue
       await client.query(
         `insert into submission_question_answers
            (submission_id, question_id, kind, transcription, pages, status, provenance)
@@ -1362,33 +1388,48 @@ export async function remarkAssessmentQuestions(input: {
  * practical assessment's files change. The submission is left unmarked: if
  * sending it again then fails, it must not read as marked. The caller holds
  * the submission's row lock.
+ *
+ * `questionIds` limits all of this to those questions: other questions'
+ * rows, totals and answers stay, and so does mark_status, which the queue
+ * sets when it sends the scoped read (the other questions are still marked).
  */
 export async function clearMarkedQuestionWork(
   db: Queryable,
   submissionId: string,
-  options: { keepTeacherAnswers: boolean },
+  options: { keepTeacherAnswers: boolean; questionIds?: string[] },
 ): Promise<void> {
+  const scoped = options.questionIds !== undefined
+  // $2 null: every question; otherwise only these.
+  const scope = scoped ? options.questionIds! : null
+  const inScope = "($2::text[] is null or question_id::text = any($2::text[]))"
   await db.query(
     `delete from submission_question_criterion_marks
-      where submission_id = $1 and provenance <> 'teacher' and teacher_feedback is null`,
-    [submissionId],
+      where submission_id = $1 and provenance <> 'teacher' and teacher_feedback is null and ${inScope}`,
+    [submissionId, scope],
   )
-  await db.query("delete from submission_question_marks where submission_id = $1 and provenance <> 'teacher'", [
-    submissionId,
-  ])
+  await db.query(
+    `delete from submission_question_marks where submission_id = $1 and provenance <> 'teacher' and ${inScope}`,
+    [submissionId, scope],
+  )
   if (options.keepTeacherAnswers) {
-    await db.query("delete from submission_question_answers where submission_id = $1 and provenance <> 'teacher'", [
-      submissionId,
-    ])
+    await db.query(
+      `delete from submission_question_answers where submission_id = $1 and provenance <> 'teacher' and ${inScope}`,
+      [submissionId, scope],
+    )
     await db.query(
       `update submission_question_answers set marker_evidence = null, updated_at = timezone('utc', now())
-        where submission_id = $1 and marker_evidence is not null`,
-      [submissionId],
+        where submission_id = $1 and marker_evidence is not null and ${inScope}`,
+      [submissionId, scope],
     )
   } else {
-    await db.query("delete from submission_question_answers where submission_id = $1", [submissionId])
+    await db.query(`delete from submission_question_answers where submission_id = $1 and ${inScope}`, [
+      submissionId,
+      scope,
+    ])
   }
-  await db.query("update submissions set mark_status = null, mark_error = null where submission_id = $1", [submissionId])
+  if (!scoped) {
+    await db.query("update submissions set mark_status = null, mark_error = null where submission_id = $1", [submissionId])
+  }
   await recomputeAssessmentSubmission(db, submissionId)
 }
 
@@ -1403,10 +1444,15 @@ export type RereadRefusal = "already_reading" | "not_handed_in"
  * teacher's transcription on an assessment paper. Refused, with nothing
  * changed, while a read is already open, or (practical) once the work is no
  * longer handed in. The caller then queues the read (enqueueMarkingTasks).
+ *
+ * `questionIds` (a practical assessment re-marking only some questions):
+ * only those questions' open mark jobs, rows and answers go; the read the
+ * caller queues then changes only those (completeAssessmentRead).
  */
 export async function clearForReread(input: {
   activityId: string
   submissionId: string
+  questionIds?: string[]
 }): Promise<RereadRefusal | null> {
   return inTransaction(async (client) => {
     const activityId = await lockAssessmentSubmission(client, input.submissionId)
@@ -1424,13 +1470,25 @@ export async function clearForReread(input: {
     )
     if (rows[0]?.reading) return "already_reading"
     if (practical && rows[0]?.submission_status !== "submitted") return "not_handed_in"
-    await client.query(
-      `delete from external_jobs
-        where job_type in ('ai_read', 'ai_mark') and status in ('pending', 'processing')
-          and payload->>'submissionId' = $1`,
-      [input.submissionId],
-    )
-    await clearMarkedQuestionWork(client, input.submissionId, { keepTeacherAnswers: !practical })
+    if (input.questionIds) {
+      await client.query(
+        `delete from external_jobs
+          where job_type = 'ai_mark' and status in ('pending', 'processing')
+            and payload->>'submissionId' = $1 and payload->>'questionId' = any($2::text[])`,
+        [input.submissionId, input.questionIds],
+      )
+    } else {
+      await client.query(
+        `delete from external_jobs
+          where job_type in ('ai_read', 'ai_mark') and status in ('pending', 'processing')
+            and payload->>'submissionId' = $1`,
+        [input.submissionId],
+      )
+    }
+    await clearMarkedQuestionWork(client, input.submissionId, {
+      keepTeacherAnswers: !practical,
+      questionIds: input.questionIds,
+    })
     return null
   })
 }

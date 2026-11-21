@@ -1395,3 +1395,6 @@ export async function handInPowerPointAssessmentForPupil(input: { activityId: st
 
 /** remark_assessment_activity's `pupil_ids` parameter. */
 export const RemarkPupilIdsInput = jsonArray(z.string().min(1))
+
+/** remark_assessment_activity's `questions` parameter: question labels (or ids). */
+export const RemarkQuestionsInput = jsonArray(z.string().trim().min(1))

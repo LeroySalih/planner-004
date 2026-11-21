@@ -467,7 +467,13 @@ every question teacher-marked; never a folded paper. Under the row lock
 `clearMarkedQuestionWork` clears the marker's rows and the reader's answers
 (teacher rows, a teacher's comment and, on a paper, a teacher's transcription
 stay), then `enqueueMarkingTasks` queues a fresh read, which picks up a new
-reader version. Flags are left alone. Code `src/lib/assessment-paper/remark-activity.ts`;
+reader version. Flags are left alone. `questions` (labels; all must exist,
+not be teacher-only and have mark scheme text, or the call is refused) limits
+it to those questions: on a practical type the files **are read again** but
+only those questions change (`clearForReread`'s `questionIds`, the `ai_read`
+payload's `questionIds`, which `completeAssessmentRead` obeys); on a paper the
+script is **not read again** and the questions are re-marked from the stored
+transcriptions (`remarkAssessmentQuestions`). Code `src/lib/assessment-paper/remark-activity.ts`;
 tests `tests/assessment-paper/remark-activity.check.ts`.
 
 `submission_question_criterion_marks.ai_awarded` (migration 141) keeps the

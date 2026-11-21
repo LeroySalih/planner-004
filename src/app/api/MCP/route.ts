@@ -82,6 +82,7 @@ import {
   setAssessmentActivityQuestionMarks,
   setAssessmentActivityQuestions,
   RemarkPupilIdsInput,
+  RemarkQuestionsInput,
 } from '@/lib/mcp/assessment-activities'
 import { describeActivityRemark, remarkAssessmentActivity } from '@/lib/assessment-paper/remark-activity'
 import { proposeMarkSchemeSplit } from '@/lib/assessment-paper/mark-scheme-split'
@@ -3790,20 +3791,25 @@ The result is checked as create_activity checks it; a body over a limit is refus
         + 'which queues one AI mark per question as on hand-in (not teacher-only questions, blank answers, questions held for want of a mark scheme, or a question a teacher has marked in full). '
         + 'A teacher\'s marks and comments are kept, and on an assessment paper so is a transcription the teacher edited. Pupils\' open question flags are left as they are. '
         + 'Skipped, by pupil id: not_handed_in, no_passed_script, already_reading (a read is already waiting or running), nothing_to_remark (every question marked in full by a teacher), '
-        + 'no_submission (a pupil_ids entry with no submission). held: sent but held by the queue, with the reason; failed: could not be sent (recorded on the submission). '
+        + 'no_submission (a pupil_ids entry with no submission). '
+        + 'questions: only these question labels (e.g. ["1e","1j"]; any case). Every label must be on the activity, not teacher-only and have mark scheme text, or the whole call is refused naming them, before anything changes. '
+        + 'PowerPoint/database with questions: the files are read again (so a new reader version applies), but only the named questions\' AI marks, answers and mark jobs are cleared and remade; other questions are not changed. '
+        + 'Assessment paper with questions: the script is NOT read again; the named questions are marked again from the stored transcriptions (marker and legacy rows go, teacher rows and comments stay, a waiting mark job is left, a running one replaced), '
+        + 'reported per pupil in question_marks; further skips not_read (the read is not complete), blank_answers, already_queued. nothing_to_remark then means every named question is marked in full by a teacher. held: sent but held by the queue, with the reason; failed: could not be sent (recorded on the submission). '
         + 'Refused for any other activity type and for a paper folded in from the old assessments module. dry_run: true reports what would be queued and changes nothing. '
         + 'Arrays may be sent as JSON strings.',
       inputSchema: {
         activity_id: z.string().min(1).describe('The assessment-paper, PowerPoint assessment or database assessment activity id.'),
         pupil_ids: RemarkPupilIdsInput.optional().describe('Only these pupils (user ids from get_assessment_activity). Omit for every pupil with a submission. May be a JSON string.'),
+        questions: RemarkQuestionsInput.optional().describe('Only these questions, by label (e.g. ["1e","1j"]). Omit for every question. May be a JSON string.'),
         dry_run: mcpBoolean.optional().describe('true: report what would be queued; change nothing. Default false.'),
       },
       outputSchema: { remark: z.record(z.string(), z.unknown()).nullable() },
     },
-    async ({ activity_id, pupil_ids, dry_run }) =>
+    async ({ activity_id, pupil_ids, questions, dry_run }) =>
       assessmentActivityTool(
         'remark',
-        () => remarkAssessmentActivity({ activityId: activity_id, pupilIds: pupil_ids, dryRun: dry_run ?? false }),
+        () => remarkAssessmentActivity({ activityId: activity_id, pupilIds: pupil_ids, questions, dryRun: dry_run ?? false }),
         describeActivityRemark,
       ),
   )

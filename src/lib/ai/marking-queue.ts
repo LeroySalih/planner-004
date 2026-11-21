@@ -89,14 +89,21 @@ async function resolveUploadWorksheetMarkingGuidance(
 
 export { logQueueEvent } from "@/lib/ai/marking-log";
 
+/**
+ * `questionIds` (practical assessments only, remark_assessment_activity):
+ * the read is limited to those questions. Only their open mark jobs are
+ * dropped, and the ai_read payload carries them, so the read changes only
+ * those questions (completeAssessmentRead).
+ */
 export async function enqueueMarkingTasks(
   assignmentId: string,
   tasks: Array<{ submissionId: string }>,
-  options?: { processAfterSeconds?: number },
+  options?: { processAfterSeconds?: number; questionIds?: string[] },
 ) {
   if (tasks.length === 0) return;
 
   const delaySecs = options?.processAfterSeconds ?? 0;
+  const questionIds = options?.questionIds ?? null;
 
   await logQueueEvent(
     "info",
@@ -116,8 +123,11 @@ export async function enqueueMarkingTasks(
       [task.submissionId],
     );
     if (isPracticalAssessmentType(typeRows[0]?.type)) {
-      await enqueuePracticalSubmission(task.submissionId, assignmentId, delaySecs);
+      await enqueuePracticalSubmission(task.submissionId, assignmentId, delaySecs, questionIds);
       continue;
+    }
+    if (questionIds) {
+      throw new Error("Only a practical assessment's read can be limited to some questions.");
     }
     if (isAssessmentPaperType(typeRows[0]?.type)) {
       await enqueueAssessmentPaperSubmission(task.submissionId, assignmentId, delaySecs);
@@ -325,7 +335,12 @@ async function enqueueAssessmentPaperSubmission(submissionId: string, assignment
  * `ai_mark` job per question to mark (completeAssessmentRead). Any open job
  * for the submission is replaced.
  */
-async function enqueuePracticalSubmission(submissionId: string, assignmentId: string, delaySecs: number) {
+async function enqueuePracticalSubmission(
+  submissionId: string,
+  assignmentId: string,
+  delaySecs: number,
+  questionIds: string[] | null,
+) {
   const { rows } = await query<{ submission_status: string | null; type: string | null; body_data: unknown }>(
     `select s.submission_status, a.type, a.body_data
        from submissions s join activities a on a.activity_id = s.activity_id
@@ -364,15 +379,26 @@ async function enqueuePracticalSubmission(submissionId: string, assignmentId: st
     return;
   }
 
-  await queueQuestionMarkedRead(submissionId, assignmentId, delaySecs);
-  await logQueueEvent("info", `Queued the read of ${config.label} submission ${submissionId}`);
+  await queueQuestionMarkedRead(submissionId, assignmentId, delaySecs, questionIds);
+  await logQueueEvent(
+    "info",
+    `Queued the read of ${config.label} submission ${submissionId}` +
+      (questionIds ? ` for ${questionIds.length} question${questionIds.length === 1 ? "" : "s"}` : ""),
+  );
 }
 
 /**
  * In one transaction under the submission's row lock: drop its open read and
- * mark jobs, queue one `ai_read`, and set it waiting.
+ * mark jobs, queue one `ai_read`, and set it waiting. With `questionIds` only
+ * those questions' mark jobs are dropped (the others' still count towards
+ * the submission's completion) and the read's payload names them.
  */
-async function queueQuestionMarkedRead(submissionId: string, assignmentId: string, delaySecs: number) {
+async function queueQuestionMarkedRead(
+  submissionId: string,
+  assignmentId: string,
+  delaySecs: number,
+  questionIds: string[] | null = null,
+) {
   await withDbClient(async (client) => {
     await client.query("BEGIN");
     try {
@@ -380,14 +406,18 @@ async function queueQuestionMarkedRead(submissionId: string, assignmentId: strin
       await client.query(
         `delete from external_jobs
           where job_type = any($2::text[]) and status in ('pending','processing')
-            and payload->>'submissionId' = $1`,
-        [submissionId, SUBMISSION_JOB_TYPES],
+            and payload->>'submissionId' = $1
+            and ($3::text[] is null or job_type = 'ai_read' or payload->>'questionId' = any($3::text[]))`,
+        [submissionId, SUBMISSION_JOB_TYPES, questionIds],
       );
       await client.query(
         `insert into external_jobs (job_type, payload, process_after)
-         values ('ai_read', jsonb_build_object('submissionId', $1::text, 'assignmentId', $2::text),
+         values ('ai_read',
+                 jsonb_build_object('submissionId', $1::text, 'assignmentId', $2::text)
+                   || case when $4::text[] is null then '{}'::jsonb
+                           else jsonb_build_object('questionIds', to_jsonb($4::text[])) end,
                  now() + make_interval(secs => $3))`,
-        [submissionId, assignmentId, delaySecs],
+        [submissionId, assignmentId, delaySecs, questionIds],
       );
       await client.query(
         `update submissions set mark_status='waiting', mark_error=null where submission_id=$1`,
