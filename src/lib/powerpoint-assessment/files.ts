@@ -320,9 +320,23 @@ export type StoredPracticalFile = {
   bytes: number
   /** The file this one replaced, if any. */
   replaced_file_id: string | null
-  /** Whether the submission had been handed in, so its marking was cleared and sent again. */
+  /** Whether the submission had been handed in and was sent for marking again (afterChange "resend"). */
   requeued: boolean
+  /** Whether the submission had been handed in, so what was marked was cleared ("resend" and "clear"). */
+  cleared: boolean
 }
+
+/**
+ * What a teacher's change to a handed-in submission's file does to its marking:
+ *   resend  what was marked is cleared (teacher rows kept) and it is sent for
+ *           marking again after REPLACEMENT_REQUEUE_DELAY_SECONDS (default);
+ *   clear   what was marked is cleared and its open read and mark jobs are
+ *           dropped, and nothing is sent: no mark from the old file stays;
+ *   keep    nothing is cleared or sent: the caller re-marks the questions it
+ *           wants (remarkAssessmentActivity with questions).
+ * Work not handed in has nothing to clear and is never sent.
+ */
+export type PracticalFileAfterChange = "resend" | "clear" | "keep"
 
 /**
  * Store one pupil's file in an upload slot. The file must be what the slot
@@ -343,7 +357,10 @@ export async function storePracticalFile(input: {
   /** A teacher acting for the pupil: may change files after hand-in. */
   byTeacher?: boolean
   groupAssignmentId?: string | null
+  /** After hand-in (a teacher only): see PracticalFileAfterChange. Default "resend". */
+  afterChange?: PracticalFileAfterChange
 }): Promise<StoredPracticalFile> {
+  const afterChange = input.afterChange ?? "resend"
   const { activityId, pupilId, slotKey, bytes } = input
   const originalName = (input.originalName.split(/[\\/]/).pop() ?? "").trim() || "file"
   assertUploadSize(bytes)
@@ -379,7 +396,15 @@ export async function storePracticalFile(input: {
            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [fileId, activityId, pupilId, submissionId, slotKey, originalName, storagePath, bytes.byteLength, sha256(bytes), uploadedBy],
         )
-        if (handedIn) await clearMarkedQuestionWork(client, submissionId, { keepTeacherAnswers: false })
+        if (handedIn && afterChange === "clear") {
+          await client.query(
+            `delete from external_jobs
+              where job_type in ('ai_read', 'ai_mark') and status in ('pending', 'processing')
+                and payload->>'submissionId' = $1`,
+            [submissionId],
+          )
+        }
+        if (handedIn && afterChange !== "keep") await clearMarkedQuestionWork(client, submissionId, { keepTeacherAnswers: false })
         await client.query("COMMIT")
         return { submissionId, replacedFileId: old[0]?.file_id ?? null, handedIn }
       } catch (error) {
@@ -392,7 +417,8 @@ export async function storePracticalFile(input: {
     throw error
   }
 
-  if (result.handedIn) {
+  const requeued = result.handedIn && afterChange === "resend"
+  if (requeued) {
     await resendForMarking(result.submissionId, activityId, pupilId, input.groupAssignmentId, REPLACEMENT_REQUEUE_DELAY_SECONDS)
   }
   if (result.replacedFileId) await removePupilFileFolders(activityId, [result.replacedFileId])
@@ -405,7 +431,8 @@ export async function storePracticalFile(input: {
     storage_path: storagePath,
     bytes: bytes.byteLength,
     replaced_file_id: result.replacedFileId,
-    requeued: result.handedIn,
+    requeued,
+    cleared: result.handedIn && afterChange !== "keep",
   }
 }
 

@@ -6,9 +6,18 @@ import { cleanFileName } from '@/lib/mcp/file-input'
 import { uploadActivityFile } from '@/lib/mcp/activities'
 import { uploadLessonFile } from '@/lib/mcp/lessons'
 import { storeAssessmentFile } from '@/lib/assessments/store'
-import { claimUploadLink, releaseUploadLink, uploadLinkMaxBytes, type UploadLink } from '@/lib/mcp/upload-links'
+import {
+  PUPIL_UPLOAD_KINDS,
+  claimUploadLink,
+  isPracticalActivityFileKind,
+  releaseUploadLink,
+  uploadLinkMaxBytes,
+  type UploadLink,
+} from '@/lib/mcp/upload-links'
 import { storePaperFile, storeScript } from '@/lib/assessment-paper/files'
+import { describeActivityRemark, remarkAssessmentActivity, resolveQuestions } from '@/lib/assessment-paper/remark-activity'
 import { PracticalFileRefusal, storePracticalFile, storeSuppliedImage } from '@/lib/powerpoint-assessment/files'
+import { storePracticalActivityFile } from '@/lib/practical-assessment/activity-files'
 
 // The token in the path is the whole credential: a one-time link from
 // create_activity_file_upload_link / create_lesson_file_upload_link /
@@ -54,13 +63,31 @@ async function readFile(request: NextRequest, maxBytes: number): Promise<{ buffe
  * An assessment-paper activity's question paper, mark scheme or one pupil's
  * script; or a PowerPoint assessment's supplied image or one pupil's file in
  * a slot (stored as a teacher's upload: allowed after hand-in, which it does
- * not do itself).
+ * not do itself); or a practical assessment's evidence template, starting
+ * database or reference file (activity files). A pupil's file with
+ * remark_questions is stored without its own re-mark (the caller re-marks
+ * those questions), and with remark false is stored and cleared, not sent.
  */
 async function storeAssessmentActivityFile(link: UploadLink, buffer: Buffer, fileName: string) {
   const activityId = link.activity_id!
   try {
     if (link.upload_kind === 'script') {
-      return await storeScript({ activityId, pupilId: link.pupil_id!, bytes: buffer, uploadedBy: link.caller.userId })
+      return await storeScript({
+        activityId,
+        pupilId: link.pupil_id!,
+        bytes: buffer,
+        uploadedBy: link.caller.userId,
+        send: link.remark !== false,
+      })
+    }
+    if (isPracticalActivityFileKind(link.upload_kind)) {
+      return await storePracticalActivityFile({
+        activityId,
+        kind: link.upload_kind,
+        fileName: link.file_name ?? fileName,
+        bytes: buffer,
+        uploadedBy: link.caller.userId,
+      })
     }
     if (link.upload_kind === 'question_paper' || link.upload_kind === 'mark_scheme') {
       return await storePaperFile(activityId, link.upload_kind, buffer, link.caller.userId)
@@ -91,6 +118,7 @@ async function storeAssessmentActivityFile(link: UploadLink, buffer: Buffer, fil
         originalName: fileName,
         uploadedBy: link.caller.userId,
         byTeacher: true,
+        afterChange: link.remark_questions ? 'keep' : link.remark === false ? 'clear' : 'resend',
       })
       return {
         file_id: stored.file_id,
@@ -100,6 +128,7 @@ async function storeAssessmentActivityFile(link: UploadLink, buffer: Buffer, fil
         bytes: stored.bytes,
         replaced_file_id: stored.replaced_file_id,
         requeued: stored.requeued,
+        cleared: stored.cleared,
       }
     }
   } catch (error) {
@@ -108,6 +137,29 @@ async function storeAssessmentActivityFile(link: UploadLink, buffer: Buffer, fil
     throw error
   }
   throw new UploadError(400, 'This upload link does not say what the file is')
+}
+
+/**
+ * The link's re-mark, after the file is stored: whole-activity kinds with
+ * remark true (every pupil), a pupil's file with remark_questions (that pupil,
+ * those questions). Anything else was settled by the store. A failure is
+ * reported, never thrown: the file is stored.
+ */
+async function runLinkRemark(link: UploadLink): Promise<{ remark?: Record<string, unknown>; remark_error?: string }> {
+  const pupilKind = link.upload_kind !== null && PUPIL_UPLOAD_KINDS.includes(link.upload_kind)
+  const wanted = pupilKind ? link.remark_questions !== null : link.remark === true
+  if (!wanted) return {}
+  try {
+    const result = await remarkAssessmentActivity({
+      activityId: link.activity_id!,
+      pupilIds: pupilKind ? [link.pupil_id!] : null,
+      questions: link.remark_questions,
+    })
+    return { remark: { ...result, message: describeActivityRemark(result) } }
+  } catch (error) {
+    console.error('[mcp-upload] re-mark after upload failed', { linkId: link.link_id, error })
+    return { remark_error: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 class UploadError extends Error {
@@ -136,6 +188,8 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     upload_kind: link.upload_kind,
     pupil_id: link.pupil_id,
     slot_key: link.slot_key,
+    remark: link.remark,
+    remark_questions: link.remark_questions,
   }
   const maxBytes = uploadLinkMaxBytes(link)
   try {
@@ -164,6 +218,16 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
       throw new UploadError(415, 'HTML and SVG files cannot be uploaded, except an .html page to a display-webpage activity. Convert an image to PNG first.')
     }
 
+    // A pupil's file re-marked on named questions is stored without its own
+    // re-mark, so labels that no longer resolve refuse the upload first.
+    if (link.target === 'assessment-activity' && link.remark_questions && link.pupil_id) {
+      try {
+        await resolveQuestions(link.activity_id!, link.remark_questions)
+      } catch (error) {
+        throw new UploadError(409, `${error instanceof Error ? error.message : String(error)} Nothing was stored: ask for a new link.`)
+      }
+    }
+
     const file = link.target === 'assessment-activity'
       ? await storeAssessmentActivityFile(link, buffer, fileName)
       : link.assessment_id
@@ -172,8 +236,11 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
         ? await uploadActivityFile(link.lesson_id!, link.activity_id, fileName, buffer, type)
         : await uploadLessonFile(link.lesson_id!, fileName, buffer, type)
 
+    const remarked = link.target === 'assessment-activity' ? await runLinkRemark(link) : {}
+    if (remarked.remark) args.remark_queued = remarked.remark.queued
+    if (remarked.remark_error) args.remark_error = remarked.remark_error
     await recordMcpCall(link.caller, { tool: 'file_upload:link', args, error: null, durationMs: performance.now() - started })
-    return NextResponse.json({ success: true, file })
+    return NextResponse.json({ success: true, file, ...remarked })
   } catch (error) {
     await releaseUploadLink(link.link_id)
     const message = error instanceof Error ? error.message : 'Upload failed'

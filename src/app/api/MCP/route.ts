@@ -69,7 +69,7 @@ import {
   type AssessmentPaper,
 } from '@/types'
 import { decodeBase64File, fetchFileFromUrl } from '@/lib/mcp/file-input'
-import { createUploadLink, uploadLinkMaxBytes, type AssessmentActivityUploadKind } from '@/lib/mcp/upload-links'
+import { ASSESSMENT_ACTIVITY_UPLOAD_KINDS, createUploadLink, uploadLinkMaxBytes, type AssessmentActivityUploadKind } from '@/lib/mcp/upload-links'
 import { MAX_SCRIPT_PAGES } from '@/lib/assessment-paper/files'
 import {
   AssessmentActivityQuestionsInput,
@@ -2180,7 +2180,14 @@ The result is checked as create_activity checks it; a body over a limit is refus
     target:
       | { lessonId: string; activityId: string | null }
       | { assessmentId: string; pupilId: string | null }
-      | { assessmentActivityId: string; uploadKind: AssessmentActivityUploadKind; pupilId: string | null; slotKey?: string | null },
+      | {
+          assessmentActivityId: string
+          uploadKind: AssessmentActivityUploadKind
+          pupilId: string | null
+          slotKey?: string | null
+          remark?: boolean | null
+          remarkQuestions?: string[] | null
+        },
     fileName: string | undefined,
   ) => {
     const maxBytes = uploadLinkMaxBytes({
@@ -3363,7 +3370,7 @@ The result is checked as create_activity checks it; a body over a limit is refus
     'A "powerpoint-assessment" activity is a practical task: each pupil hands in a presentation (.pptx) plus any printouts (PDF) and evidence document (.docx), '
     + 'and it is marked per question and per criterion like an assessment paper, from the evidence each question names. '
     + 'Workflow: (1) create_activity type "powerpoint-assessment" with body_data.uploadSlots (exactly one required pptx slot); '
-    + '(2) create_assessment_activity_file_upload_link kind mark_scheme / question_paper (PDF) and kind supplied_image for each image the task gives pupils; '
+    + '(2) create_assessment_activity_file_upload_link kind mark_scheme / question_paper (PDF), kind supplied_image for each image the task gives pupils, kind evidence_template for the blank evidence .docx and kind reference_file for any file a question\'s reference_file evidence names; '
     + '(3) set_assessment_activity_questions with each question\'s criteria, mark_scheme text and evidence sources; '
     + '(4) pupils upload and press Hand in (a teacher can upload for a pupil with kind practical_file and hand in with hand_in_powerpoint_assessment); marking starts on hand-in; '
     + '(5) get_assessment_activity / get_assessment_activity_result to check, get_practical_assessment_evidence to see what the reader took from each file, '
@@ -3374,7 +3381,7 @@ The result is checked as create_activity checks it; a body over a limit is refus
     + 'with screenshots and typed answers under its headings (plus any PDF printouts), marked per question and per criterion from the evidence each question names. '
     + 'Workflow: (1) create_activity type "database-assessment" with body_data.uploadSlots (exactly one required accdb slot; pdf and docx slots supporting), '
     + 'body_data.evidenceTemplateFile (the blank evidence document, an activity file) and body_data.startingDatabaseFile (the .accdb pupils start from, an activity file; each pupil\'s database is compared with it); '
-    + '(2) create_assessment_activity_file_upload_link kind mark_scheme / question_paper (PDF) — there are no supplied images; '
+    + '(2) create_assessment_activity_file_upload_link kind mark_scheme / question_paper (PDF), kind evidence_template (the blank evidence .docx), kind starting_database (the .accdb; both set the body_data key too) and kind reference_file — there are no supplied images; '
     + '(3) set_assessment_activity_questions with each question\'s criteria, mark_scheme text and evidence sources: '
     + '{ source: "database", slot, sections? } (the reader\'s report of the accdb slot; sections from tables, fields, relationships, lookups, table-sort, records, records:TABLE, changes, queries, query:NAME, objects, warnings; '
     + 'default all but records and single queries), evidence_section, file and reference_file; '
@@ -3506,10 +3513,13 @@ The result is checked as create_activity checks it; a body over a limit is refus
     {
       title: 'Create a one-time upload link for an assessment-paper, PowerPoint or database assessment activity',
       description:
-        'Upload the question paper, the mark scheme or one pupil\'s script to an assessment-paper activity, or the mark scheme, question paper, a supplied image or one pupil\'s file to a PowerPoint assessment, '
-        + 'or the mark scheme, question paper or one pupil\'s file to a database assessment. '
+        'Upload any file an assessment activity uses: to an assessment-paper activity the question paper, the mark scheme or one pupil\'s script; '
+        + 'to a PowerPoint assessment the mark scheme, question paper, a supplied image, the evidence template, a reference file or one pupil\'s file; '
+        + 'to a database assessment the mark scheme, question paper, the evidence template, the starting database, a reference file or one pupil\'s file. '
         + 'Returns a single-use link, valid 15 minutes, that accepts one file with a plain curl POST — no credentials, no base64. '
-        + 'kind "question_paper" / "mark_scheme": a PDF (max 25 MB), teacher-only; a new upload replaces the old one. On an assessment paper the question paper\'s page 1 must be its blank front sheet. '
+        + 'kind "question_paper" / "mark_scheme": a PDF (max 25 MB), teacher-only; a new upload replaces the old one. On an assessment paper the question paper\'s page 1 must be its blank front sheet; '
+        + 'a new question paper is used for the front sheet check of scripts uploaded after it — scripts already stored are not checked again. '
+        + 'A new mark scheme PDF does not change any question\'s mark_scheme text (split_assessment_activity_mark_scheme proposes that, set_assessment_activity_questions saves it), so a re-mark after it marks with the text already saved. '
         + `kind "script" (assessment papers): one pupil's paper as a PDF (max 25 MB, up to ${MAX_SCRIPT_PAGES} pages), with that pupil's pupil_id from get_assessment_activity; the question paper must be uploaded first. `
         + 'On arrival the script\'s page 1 is compared with the front sheet and its page count with the paper\'s. If both pass, pages 2 onwards are kept for marking (page 1 is never sent to a model); '
         + 'if not, the script is stored but held, with the reason in front_sheet_check (get_assessment_activity) — fix the page order and upload it again. '
@@ -3517,20 +3527,55 @@ The result is checked as create_activity checks it; a body over a limit is refus
         + 'The pupil can open their original script once the lesson\'s feedback is visible to them. '
         + 'kind "supplied_image" (PowerPoint assessments): an image the task gives pupils (PNG, JPEG, GIF or WebP, max 10 MB), fingerprinted so the reader can name it in a pupil\'s slides; '
         + 'image_name is its name (default: the uploaded file\'s name without extension); the same name replaces the image. The reply\'s warnings name any image it looks very like. '
+        + 'kind "evidence_template" (PowerPoint and database assessments): the blank evidence .docx (max 25 MB), stored as an activity file and set as body_data.evidenceTemplateFile; '
+        + 'the reply\'s evidence_template_check lists the questions\' evidence headings it lacks. '
+        + 'kind "starting_database" (database assessments): the .accdb pupils start from (max 25 MB), stored as an activity file and set as body_data.startingDatabaseFile; the reply\'s starting_database_check lists its tables and objects. '
+        + 'For both, file_name is the name to store it under (default: the uploaded file\'s name), and a damaged or wrong file is refused before anything is stored. '
+        + 'kind "reference_file" (PowerPoint and database assessments): a file a question\'s reference_file evidence names (PDF, .docx, .txt, .md or .csv, max 5 MB); file_name is required, the evidence\'s fileName exactly; '
+        + 'the reply\'s named_by_questions lists the questions that read it. For these three kinds a file of the same name is replaced and the old copy kept as a past version (list_lesson_files shows both). '
         + 'kind "practical_file" (PowerPoint and database assessments): one pupil\'s file for one upload slot (max 25 MB), with pupil_id and slot (a key of body_data.uploadSlots); '
         + 'it must be the slot\'s kind (a .pptx file name for a pptx slot, an .accdb for an accdb slot, a PDF, or a .docx) and replaces the slot\'s file. It does NOT hand in (hand_in_powerpoint_assessment does); '
-        + 'if the pupil had already handed in, what was marked is cleared (teacher marks kept) and the work is sent for marking again. Call once per file.',
+        + 'if the pupil had already handed in, what was marked is cleared (teacher marks kept) and the work is sent for marking again. Call once per file. '
+        + 'Re-marking after the upload (checked when the link is made, by remark_assessment_activity\'s rules, and again on upload): '
+        + 'whole-activity kinds (question_paper, mark_scheme, supplied_image, evidence_template, starting_database, reference_file): remark default false; remark: true re-marks every pupil\'s latest work once the file is stored, as remark_assessment_activity does, '
+        + 'and remark_questions (labels) only those questions. '
+        + 'Pupil kinds (script, practical_file): by default the new file is sent for marking as described above. remark: false stores the file and clears the old AI marks (teacher marks kept) without sending it, so no mark from the old file stays '
+        + '(a practical file not yet handed in has nothing to clear); send it later with remark_assessment_activity. '
+        + 'practical_file with remark_questions: the upload clears nothing; once the file is stored, that pupil is read again and only those questions re-marked (the other questions keep their marks); not handed in, nothing is re-marked. '
+        + 'remark_questions is refused for a script (a new script is read and marked in full) and with remark: false. Labels must be on the activity, not teacher-only and have mark scheme text. '
+        + 'The upload\'s JSON reply then has remark (queued, queued_pupil_ids, question_marks_queued, skipped, held, failed, message) or remark_error: a failed re-mark never undoes the stored file. '
+        + 'Arrays may be sent as JSON strings.',
       inputSchema: z.object({
         activity_id: z.string().min(1).describe('The assessment-paper, PowerPoint assessment or database assessment activity id.'),
-        kind: z.enum(['question_paper', 'mark_scheme', 'script', 'supplied_image', 'practical_file']).describe('What the file is.'),
+        kind: z.enum(ASSESSMENT_ACTIVITY_UPLOAD_KINDS).describe('What the file is.'),
         pupil_id: z.string().optional().describe('Required for kind "script" and "practical_file": the pupil whose work it is. Omit otherwise.'),
         slot: z.string().optional().describe('Required for kind "practical_file": the upload slot key, e.g. "presentation" or "database". Omit otherwise.'),
         image_name: z.string().optional().describe('kind "supplied_image" only: the image\'s name as the task calls it.'),
+        file_name: z.string().optional().describe('kinds "evidence_template", "starting_database" (optional, default the uploaded name) and "reference_file" (required): the activity file\'s name.'),
+        remark: mcpBoolean.optional().describe('Re-mark after the upload. Whole-activity kinds: default false; true re-marks every pupil. Pupil kinds: default sends the new file for marking; false stores and clears, sends nothing.'),
+        remark_questions: RemarkQuestionsInput.optional().describe('Only these question labels are re-marked (implies remark). Not for kind "script". May be a JSON string.'),
       }),
       outputSchema: z.object({ link: uploadLinkOutput }),
     },
-    async ({ activity_id, kind, pupil_id, slot, image_name }) =>
-      uploadLinkTool({ assessmentActivityId: activity_id, uploadKind: kind, pupilId: pupil_id ?? null, slotKey: slot ?? null }, image_name),
+    async ({ activity_id, kind, pupil_id, slot, image_name, file_name, remark, remark_questions }) => {
+      if (image_name !== undefined && file_name !== undefined) {
+        return {
+          content: [{ type: 'text' as const, text: 'Error: send image_name (supplied_image) or file_name (evidence_template, starting_database, reference_file), not both' }],
+          structuredContent: { link: null },
+        }
+      }
+      return uploadLinkTool(
+        {
+          assessmentActivityId: activity_id,
+          uploadKind: kind,
+          pupilId: pupil_id ?? null,
+          slotKey: slot ?? null,
+          remark: remark ?? null,
+          remarkQuestions: remark_questions ?? null,
+        },
+        image_name ?? file_name,
+      )
+    },
   )
 
   srv.registerTool(

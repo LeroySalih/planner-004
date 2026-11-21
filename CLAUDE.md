@@ -363,7 +363,10 @@ upload-file is treated as AI-marked. Tests: `tests/upload-file/ai-marking.check.
 
 An `assessment-paper` is **read once, then marked per question** (Marking v2).
 Sending a script queues one `ai_read` job `{submissionId, assignmentId}`
-(`enqueueMarkingTasks`, from `storeScript` or *Send N unmarked scripts*). The
+(`enqueueMarkingTasks`, from `storeScript` or *Send N unmarked scripts*;
+over MCP a script link with `remark: false` stores and clears without
+sending, and a question paper or mark scheme link may re-mark with `remark` /
+`remark_questions`, see *PowerPoint assessments* MCP). The
 read (`src/lib/assessment-paper/reading.ts`, route `surface:assessment-read`,
 migration 135) sends the question list and the markable pages, each labelled
 with its page number, and gets back per label `{kind: text|sketch|mixed,
@@ -631,8 +634,19 @@ types (spreadsheets …) are new registry entries and slot-kind readers.
 - **MCP**: `set_assessment_activity_questions` takes `evidence`;
   `get_assessment_activity` / `get_assessment_activity_result` report slots,
   files, hand-in and the marker's note; `create_assessment_activity_file_upload_link`
-  kinds `supplied_image` (10 MB) and `practical_file` (pupil + slot, 25 MB,
-  does not hand in); `get_practical_assessment_evidence` (what the reader
+  kinds `supplied_image` (10 MB), `practical_file` (pupil + slot, 25 MB,
+  does not hand in), and (migration 147, either practical type)
+  `evidence_template` (.docx) and `reference_file` (`file_name` required, the
+  evidence's `fileName`; pdf, docx, txt, md, csv, 5 MB), stored as activity
+  files (`src/lib/practical-assessment/activity-files.ts`, past versions kept)
+  with the template set in `body_data`. The link's `remark` / `remark_questions`
+  re-mark after the upload (`remarkAssessmentActivity`): whole-activity kinds
+  default to none; a pupil's file defaults to the usual re-send, `remark: false`
+  stores and clears (`storePracticalFile` `afterChange: 'clear'`, `storeScript`
+  `send: false`), `remark_questions` re-marks only that pupil's named questions
+  (`afterChange: 'keep'`); the result is in the upload's reply and never undoes
+  the file (tests `tests/powerpoint-assessment/upload-link-kinds.check.ts`);
+  `get_practical_assessment_evidence` (what the reader
   stored, no picture data); `hand_in_powerpoint_assessment` (either practical
   type). The script link is refused for practical types. See `docs/MCP.md`.
 - **Migration 143**: the type in `is_question_marked_activity_type` and
@@ -700,7 +714,10 @@ below differ.
 - **Views**: the results panel's *Pupil's files* adds what the reader found
   and the changes from the starting database (`DatabaseSummary`), and per
   question the report text the marker was given (teacher-only). MCP as in
-  `docs/MCP.md` *Database assessment activities*.
+  `docs/MCP.md` *Database assessment activities*; the starting database and
+  the evidence template upload through `create_assessment_activity_file_upload_link`
+  kinds `starting_database` / `evidence_template`, which store the activity file
+  and set the `body_data` key (`starting_database` is refused on other types).
 - **Runtime**: `mdbtools` is installed in the `Dockerfile-dino` runner (with
   poppler-utils). Prod needs migration 146 **and** an image rebuild.
 - **Setup from a spec**: `scripts/setup-powerpoint-assessment.sh

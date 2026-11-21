@@ -133,7 +133,7 @@ type NamedQuestion = { question_id: string; label: string }
  * when any is not on the activity, is marked by the teacher only, or has no
  * mark scheme text: nothing is written.
  */
-async function resolveQuestions(activityId: string, given: string[]): Promise<NamedQuestion[]> {
+export async function resolveQuestions(activityId: string, given: string[]): Promise<NamedQuestion[]> {
   const { rows } = await query<NamedQuestion & { marking: string; has_scheme: boolean }>(
     `select question_id::text as question_id, label, marking,
             nullif(btrim(coalesce(mark_scheme, '')), '') is not null as has_scheme

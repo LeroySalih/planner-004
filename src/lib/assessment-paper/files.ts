@@ -249,8 +249,8 @@ export type StoredScript = {
   replaced_scripts: number
   /** 'passed', or why the script is held (see front-sheet.ts). */
   front_sheet_check: string
-  /** "held": stored, not sent; `message` says why. */
-  marking: "queued" | "held"
+  /** "held": stored, not sent; `message` says why. "not_sent": passed, but `send: false`. */
+  marking: "queued" | "held" | "not_sent"
   message: string
 }
 
@@ -288,8 +288,15 @@ export async function storeScript(input: {
   pupilId: string
   bytes: Buffer
   uploadedBy?: string | null
+  /**
+   * false: store and clear as usual, but send nothing (mark_status null, open
+   * read and mark jobs dropped), so no mark from the old script stays and
+   * *Send N unmarked scripts* can send it later. Default true.
+   */
+  send?: boolean
 }): Promise<StoredScript> {
   const { activityId, pupilId, bytes } = input
+  const send = input.send ?? true
   assertUploadSize(bytes)
   if (sniffFileKind(bytes) !== "pdf") {
     throw new Error("A script must be a PDF: its page 1 (the front sheet) is checked against the question paper.")
@@ -381,15 +388,15 @@ export async function storeScript(input: {
           `update submissions
               set submission_status = 'submitted', mark_status = $2, mark_error = $3
             where submission_id = $1`,
-          [id, passed ? "waiting" : null, passed ? null : frontSheetCheck],
+          [id, passed && send ? "waiting" : null, passed ? null : frontSheetCheck],
         )
-        // Jobs queued for the old script must not run on a held one.
-        if (!passed) {
+        // Jobs queued for the old script must not run on a held one, nor on one not sent.
+        if (!passed || !send) {
           await client.query(
             `update external_jobs set status = 'error', last_error = $2, updated_at = now()
               where job_type in ('ai_mark', 'ai_read') and status in ('pending', 'processing')
                 and payload ->> 'submissionId' = $1`,
-            [id, frontSheetCheck],
+            [id, passed ? "The script was replaced and not sent for marking." : frontSheetCheck],
           )
         }
         await recomputeAssessmentSubmission(client, id)
@@ -415,6 +422,7 @@ export async function storeScript(input: {
     front_sheet_check: frontSheetCheck,
   }
   if (!passed) return { ...result, marking: "held", message: `Stored, not sent. ${frontSheetCheck}` }
+  if (!send) return { ...result, marking: "not_sent", message: "Stored, not sent for marking: the old marks were cleared (a teacher's kept)." }
 
   await enqueueMarkingTasks(assignmentId, [{ submissionId }])
   // The queue may hold the submission too; report what it did.

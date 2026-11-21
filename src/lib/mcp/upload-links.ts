@@ -10,13 +10,34 @@ import { isAssessmentPaperType, isPowerPointAssessmentType, isPracticalAssessmen
 import { AssessmentPaperActivityBodySchema, type PracticalUploadSlot } from '@/types'
 import { practicalBodySchema, practicalTypeConfig } from '@/lib/practical-assessment/types'
 import { PRACTICAL_UPLOAD_MAX_BYTES, SUPPLIED_IMAGE_MAX_BYTES } from '@/lib/powerpoint-assessment/files'
+import { remarkAssessmentActivity } from '@/lib/assessment-paper/remark-activity'
+import {
+  practicalActivityFileNameProblem,
+  practicalActivityFileTypeProblem,
+  type PracticalActivityFileKind,
+} from '@/lib/practical-assessment/activity-files'
 
 const LINK_LIFETIME_MINUTES = 15
 
-export type AssessmentActivityUploadKind = 'question_paper' | 'mark_scheme' | 'script' | 'supplied_image' | 'practical_file'
+export const ASSESSMENT_ACTIVITY_UPLOAD_KINDS = [
+  'question_paper',
+  'mark_scheme',
+  'script',
+  'supplied_image',
+  'practical_file',
+  'evidence_template',
+  'starting_database',
+  'reference_file',
+] as const
+export type AssessmentActivityUploadKind = (typeof ASSESSMENT_ACTIVITY_UPLOAD_KINDS)[number]
 
-/** The kinds that name a pupil (mcp_upload_links_target_shape, migration 143). */
-const PUPIL_UPLOAD_KINDS: readonly AssessmentActivityUploadKind[] = ['script', 'practical_file']
+/** The kinds that name a pupil (mcp_upload_links_target_shape, migrations 143 and 147). */
+export const PUPIL_UPLOAD_KINDS: readonly AssessmentActivityUploadKind[] = ['script', 'practical_file']
+
+/** A practical assessment's own activity files, stored under a file name (src/lib/practical-assessment/activity-files.ts). */
+const ACTIVITY_FILE_KINDS: readonly AssessmentActivityUploadKind[] = ['evidence_template', 'starting_database', 'reference_file']
+export const isPracticalActivityFileKind = (kind: AssessmentActivityUploadKind | null): kind is PracticalActivityFileKind =>
+  kind !== null && ACTIVITY_FILE_KINDS.includes(kind)
 
 /** A supplied image's name, as storeSuppliedImage takes it. */
 function checkImageName(value: string): string {
@@ -41,6 +62,15 @@ export type UploadLink = {
   slot_key: string | null
   /** supplied_image: the image's name; otherwise the name to store the file under. */
   file_name: string | null
+  /**
+   * Assessment activity links: re-mark after the upload. null = the kind's
+   * default (whole-activity kinds: no re-mark; a pupil's file: sent for
+   * marking as usual); true = re-mark; false = (pupil kinds) store and clear,
+   * send nothing.
+   */
+  remark: boolean | null
+  /** Only these question labels are re-marked (implies remark). */
+  remark_questions: string[] | null
   caller: McpCaller
 }
 
@@ -50,6 +80,9 @@ export function uploadLinkMaxBytes(link: { target: UploadTarget; assessment_id: 
   if (link.target !== 'assessment-activity') return MCP_UPLOAD_MAX_BYTES
   if (link.upload_kind === 'supplied_image') return SUPPLIED_IMAGE_MAX_BYTES
   if (link.upload_kind === 'practical_file') return PRACTICAL_UPLOAD_MAX_BYTES
+  if (link.upload_kind === 'evidence_template' || link.upload_kind === 'starting_database') return PRACTICAL_UPLOAD_MAX_BYTES
+  // An ordinary activity file, as upload_activity_file and the lesson editor cap it.
+  if (link.upload_kind === 'reference_file') return MCP_UPLOAD_MAX_BYTES
   return ASSESSMENT_PAPER_UPLOAD_MAX_BYTES
 }
 
@@ -60,12 +93,27 @@ export async function createUploadLink(
   target:
     | { lessonId: string; activityId: string | null; assessmentId?: undefined; uploadKind?: undefined; fileName: string | null }
     | { assessmentId: string; pupilId?: string | null; lessonId?: undefined; activityId?: undefined; uploadKind?: undefined; fileName: string | null }
-    | { assessmentActivityId: string; uploadKind: AssessmentActivityUploadKind; pupilId?: string | null; slotKey?: string | null; assessmentId?: undefined; lessonId?: undefined; activityId?: undefined; fileName: string | null },
+    | {
+        assessmentActivityId: string
+        uploadKind: AssessmentActivityUploadKind
+        pupilId?: string | null
+        slotKey?: string | null
+        /** See UploadLink.remark. */
+        remark?: boolean | null
+        /** See UploadLink.remark_questions; empty is the same as omitted. */
+        remarkQuestions?: string[] | null
+        assessmentId?: undefined
+        lessonId?: undefined
+        activityId?: undefined
+        fileName: string | null
+      },
 ): Promise<{ token: string; expiresAt: string }> {
   let lessonId = target.lessonId ?? null
   let activityId = target.activityId ?? null
   let fileName = target.fileName
   let slotKey: string | null = null
+  let remark: boolean | null = null
+  let remarkQuestions: string[] | null = null
   if ('assessmentActivityId' in target) {
     // Checked now as well as on upload, so a link that can only fail is never
     // handed out.
@@ -78,8 +126,18 @@ export async function createUploadLink(
       throw new Error(`Activity ${target.assessmentActivityId} is not an assessment paper, PowerPoint assessment or database assessment`)
     }
     const uploadKind = target.uploadKind
-    if (fileName !== null && uploadKind !== 'supplied_image') {
-      throw new Error('image_name is only for kind "supplied_image"')
+    if (!(ASSESSMENT_ACTIVITY_UPLOAD_KINDS as readonly string[]).includes(uploadKind)) {
+      throw new Error(`Unknown kind "${uploadKind}"`)
+    }
+    const questions = target.remarkQuestions && target.remarkQuestions.length > 0 ? target.remarkQuestions : null
+    if (uploadKind === 'script' && questions) {
+      throw new Error(
+        'remark_questions is not for a script: a new script replaces every answer, so it is read and marked in full (or, with remark: false, not sent). '
+        + 'Re-mark single questions of a stored script with remark_assessment_activity.',
+      )
+    }
+    if (fileName !== null && uploadKind !== 'supplied_image' && !isPracticalActivityFileKind(uploadKind)) {
+      throw new Error('image_name is only for kind "supplied_image", and file_name only for kinds "evidence_template", "starting_database" and "reference_file"')
     }
     if (uploadKind === 'script') {
       if (!isAssessmentPaperType(rows[0].type)) {
@@ -119,6 +177,20 @@ export async function createUploadLink(
         // The file keeps the name it is uploaded with.
         fileName = null
       }
+    } else if (isPracticalActivityFileKind(uploadKind)) {
+      const typeProblem = practicalActivityFileTypeProblem(uploadKind, target.assessmentActivityId, rows[0].type)
+      if (typeProblem) throw new Error(typeProblem)
+      if (target.pupilId || target.slotKey) {
+        throw new Error(`pupil_id and slot are only for kind "practical_file"; kind "${uploadKind}" belongs to the whole activity`)
+      }
+      if (uploadKind === 'reference_file' && fileName === null) {
+        throw new Error('file_name is required for kind "reference_file": the name a question\'s reference_file evidence gives (its fileName)')
+      }
+      if (fileName !== null) {
+        const nameProblem = practicalActivityFileNameProblem(uploadKind, fileName.trim())
+        if (nameProblem) throw new Error(nameProblem)
+        fileName = fileName.trim()
+      }
     } else if (target.pupilId || target.slotKey) {
       throw new Error(
         isPracticalAssessmentType(rows[0].type)
@@ -128,6 +200,27 @@ export async function createUploadLink(
     }
     lessonId = rows[0].lesson_id
     activityId = target.assessmentActivityId
+
+    // Re-mark options: checked now, by the same rules as remark_assessment_activity
+    // (a dry run refuses a bad type, a folded paper and bad labels), and again on upload.
+    if (target.remark === false && questions) {
+      throw new Error('remark_questions re-marks those questions: it cannot go with remark: false')
+    }
+    remark = questions ? true : target.remark ?? null
+    remarkQuestions = questions
+    if (remark !== null && (remark || !PUPIL_UPLOAD_KINDS.includes(uploadKind))) {
+      if (remark) {
+        await remarkAssessmentActivity({
+          activityId: target.assessmentActivityId,
+          pupilIds: target.pupilId ? [target.pupilId] : null,
+          questions,
+          dryRun: true,
+        })
+      } else {
+        // remark: false on a whole-activity kind is the default: nothing to record.
+        remark = null
+      }
+    }
   } else if (target.assessmentId) {
     const { rows } = await query(
       "select 1 from assessments where assessment_id::text = $1 and active limit 1",
@@ -158,8 +251,8 @@ export async function createUploadLink(
     : target.assessmentId ? 'assessment' : target.activityId ? 'activity' : 'lesson'
   const { rows } = await query<{ expires_at: Date }>(
     `insert into mcp_upload_links
-       (token_hash, target, lesson_id, activity_id, assessment_id, pupil_id, upload_kind, slot_key, file_name, auth_method, user_id, oauth_client_id, expires_at)
-     values ($1, $2, $3, $4, $5::uuid, $6, $7, $8, $9, $10, $11, $12, now() + make_interval(mins => $13))
+       (token_hash, target, lesson_id, activity_id, assessment_id, pupil_id, upload_kind, slot_key, file_name, auth_method, user_id, oauth_client_id, expires_at, remark, remark_questions)
+     values ($1, $2, $3, $4, $5::uuid, $6, $7, $8, $9, $10, $11, $12, now() + make_interval(mins => $13), $14, $15::text[])
      returning expires_at`,
     [
       hashToken(token),
@@ -177,6 +270,8 @@ export async function createUploadLink(
       caller.userId,
       caller.clientId,
       LINK_LIFETIME_MINUTES,
+      remark,
+      remarkQuestions,
     ],
   )
   return { token, expiresAt: rows[0].expires_at.toISOString() }
@@ -198,13 +293,16 @@ export async function claimUploadLink(token: string): Promise<UploadLink | null>
     upload_kind: AssessmentActivityUploadKind | null
     slot_key: string | null
     file_name: string | null
+    remark: boolean | null
+    remark_questions: string[] | null
     auth_method: 'oauth' | 'service_key'
     user_id: string | null
     oauth_client_id: string | null
   }>(
     `update mcp_upload_links set used_at = now()
       where token_hash = $1 and used_at is null and expires_at > now()
-      returning link_id, target, lesson_id, activity_id, assessment_id::text, pupil_id, upload_kind, slot_key, file_name, auth_method, user_id, oauth_client_id`,
+      returning link_id, target, lesson_id, activity_id, assessment_id::text, pupil_id, upload_kind, slot_key, file_name,
+                remark, remark_questions, auth_method, user_id, oauth_client_id`,
     [hashToken(token)],
   )
   const row = rows[0]
@@ -222,6 +320,8 @@ export async function claimUploadLink(token: string): Promise<UploadLink | null>
     upload_kind: row.upload_kind,
     slot_key: row.slot_key,
     file_name: row.file_name,
+    remark: row.remark,
+    remark_questions: row.remark_questions,
     caller,
   }
 }
