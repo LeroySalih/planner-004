@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 
 import { query } from '@/lib/db'
-import { pupilFileDownloadName, scriptFileName } from '@/lib/assessment-paper/files'
+import { practicalActivityFileDownloadName, pupilFileDownloadName, scriptFileName } from '@/lib/assessment-paper/files'
 import { feedbackPdfFileName } from '@/lib/assessment-paper/feedback-pdf'
-import { pupilDownloadFileName, pupilFullName } from '@/lib/storage/pupil-file-name'
+import { lessonDownloadFileName, pupilDownloadFileName, pupilFullName } from '@/lib/storage/pupil-file-name'
 
 // The names a pupil's own assessment files download under: the rule
 // (pupilDownloadFileName: the pupil's name in front, not doubled, unsafe
@@ -31,6 +31,7 @@ const NAMELESS = `dl-names-nameless-${tag}`
 const FILE = randomUUID()
 const NAMELESS_FILE = randomUUID()
 const SCRIPT = randomUUID()
+const IMAGE = randomUUID()
 
 async function setUp() {
   const { rows: [{ subject }] } = await query<{ subject: string }>('select subject from subjects limit 1')
@@ -64,6 +65,11 @@ async function setUp() {
        values ($1, $2, $3, $4, 'presentation', $5, $6, 1, 'x')`,
       [fileId, PPT, userId, await submission(PPT, userId), originalName, `${PPT}/practical/${fileId}/original.pptx`],
     )
+  await query(
+    `insert into practical_supplied_images (activity_id, name, file_name, storage_path, sha256, fingerprint)
+     values ($1, 'logo', 'logo.png', $2, 'x', 'x')`,
+    [PPT, `lessons/${LESSON}/activities/${PPT}/images/${IMAGE}.png`],
+  )
   await file(FILE, PUPIL, 'ORBIT KIOSK.pptx')
   await file(NAMELESS_FILE, NAMELESS, 'ORBIT KIOSK.pptx')
   await query(
@@ -74,6 +80,7 @@ async function setUp() {
 }
 
 async function tearDown() {
+  await query('delete from practical_supplied_images where activity_id = $1', [PPT])
   await query('delete from practical_submission_files where activity_id = $1', [PPT])
   await query('delete from assessment_scripts where activity_id = $1', [PAPER])
   await query('delete from submissions where user_id = any($1::text[])', [[PUPIL, NAMELESS]])
@@ -97,6 +104,12 @@ async function main() {
   check('a feedback PDF is named pupil then title', feedbackPdfFileName('Orbit kiosk', 'Ann', 'Smith') === 'Ann Smith - orbit-kiosk-feedback.pdf')
   check('…and stays as it was with no name', feedbackPdfFileName('Orbit kiosk', null, null) === 'orbit-kiosk-feedback.pdf')
 
+  check('a practical activity file: the lesson title in front', lessonDownloadFileName('Assessment 3', 'Evidence.pdf') === 'Assessment 3 Evidence.pdf')
+  check('…not doubled', lessonDownloadFileName('Assessment 3', 'assessment 3 evidence.pdf') === 'assessment 3 evidence.pdf')
+  check('…but a longer title is not the same title', lessonDownloadFileName('Assessment 3', 'Assessment 30.pdf') === 'Assessment 3 Assessment 30.pdf')
+  check('…unsafe characters out of the title, none left alone', lessonDownloadFileName('6.5: Orbit/kiosk', 'a.pdf') === '6.5 Orbit kiosk a.pdf'
+    && lessonDownloadFileName(null, 'a.pdf') === 'a.pdf' && lessonDownloadFileName(' ', 'a.pdf') === 'a.pdf')
+
   // --- The lookup /api/files uses -----------------------------------------------------------
   await setUp()
   try {
@@ -112,6 +125,20 @@ async function main() {
     check('a path that names another activity\'s file: no name', (await pupilFileDownloadName([PAPER, 'practical', FILE, 'original.pptx'])) === null
       && (await pupilFileDownloadName([PPT, 'scripts', SCRIPT, 'original.pdf'])) === null)
     check('an unknown file id: no name', (await pupilFileDownloadName([PPT, 'practical', randomUUID(), 'original.pptx'])) === null)
+
+    const activityFile = await practicalActivityFileDownloadName('lessons', ['lessons', LESSON, 'activities', PPT, 'Evidence.docx'])
+    check('a practical activity file: the lesson title and its name', activityFile === 'Download names check Evidence.docx', String(activityFile))
+    check('…also without the leading lessons folder', (await practicalActivityFileDownloadName('lessons', [LESSON, 'activities', PPT, 'Evidence.docx'])) === 'Download names check Evidence.docx')
+    const image = await practicalActivityFileDownloadName('lessons', ['lessons', LESSON, 'activities', PPT, 'images', `${IMAGE}.png`])
+    check('a supplied image: the lesson title and the image\'s file name', image === 'Download names check logo.png', String(image))
+    check('an unknown supplied image: no name', (await practicalActivityFileDownloadName('lessons', ['lessons', LESSON, 'activities', PPT, 'images', 'x.png'])) === null)
+    const paper = await practicalActivityFileDownloadName('assessment-scripts', [PPT, 'paper', 'question-paper.pdf'])
+    check('a practical question paper: the lesson title', paper === 'Download names check Question paper.pdf', String(paper))
+    check('an assessment paper\'s files: no name', (await practicalActivityFileDownloadName('assessment-scripts', [PAPER, 'paper', 'question-paper.pdf'])) === null
+      && (await practicalActivityFileDownloadName('lessons', ['lessons', LESSON, 'activities', PAPER, 'a.pdf'])) === null)
+    check('the mark scheme and pupil files: no name', (await practicalActivityFileDownloadName('assessment-scripts', [PPT, 'paper', 'mark-scheme.pdf'])) === null
+      && (await practicalActivityFileDownloadName('assessment-scripts', [PPT, 'practical', FILE, 'original.pptx'])) === null)
+    check('a path naming another lesson: no name', (await practicalActivityFileDownloadName('lessons', ['lessons', 'other-lesson', 'activities', PPT, 'a.pdf'])) === null)
   } finally {
     await tearDown()
   }

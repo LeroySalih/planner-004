@@ -246,7 +246,7 @@ export function PupilPowerPointAssessmentActivity({
             ) : null}
             {view.downloads.map((file) => (
               <li key={`file-${file.name}`}>
-                <a href={file.url} download={file.name} className={LINK_CLASS}>
+                <a href={file.url} download={file.downloadName} className={LINK_CLASS}>
                   {file.name}
                 </a>
               </li>
@@ -258,7 +258,7 @@ export function PupilPowerPointAssessmentActivity({
               <ul className="flex flex-wrap gap-x-5">
                 {view.suppliedImages.map((image) => (
                   <li key={`image-${image.url}`}>
-                    <a href={image.url} download={image.name} className={LINK_CLASS}>
+                    <a href={image.url} download={image.downloadName} className={LINK_CLASS}>
                       {image.name}
                     </a>
                   </li>

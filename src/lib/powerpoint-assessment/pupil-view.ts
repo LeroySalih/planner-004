@@ -17,6 +17,7 @@ import { LESSONS_BUCKET, listSuppliedImages, readPracticalSlots } from "@/lib/po
 import { practicalTypeConfig } from "@/lib/practical-assessment/types"
 import { pastVersionNames } from "@/lib/storage/file-versions"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
+import { lessonDownloadFileName } from "@/lib/storage/pupil-file-name"
 import type { PracticalUploadSlotKind } from "@/types"
 
 // A practical assessment (PowerPoint or database) on the pupil's lesson page:
@@ -50,7 +51,8 @@ export type PupilPowerPointSlot = {
   } | null
 }
 
-export type PupilPowerPointDownload = { name: string; url: string }
+/** `downloadName` is `name` with the lesson title in front, as /api/files sends it. */
+export type PupilPowerPointDownload = { name: string; downloadName: string; url: string }
 
 export type PupilPowerPointView = {
   activityId: string
@@ -77,7 +79,7 @@ export type PupilPowerPointView = {
 }
 
 /** The activity's own files (current versions only), as the lesson's file-download activities list them. */
-async function readActivityDownloads(lessonId: string, activityId: string): Promise<PupilPowerPointDownload[]> {
+async function readActivityDownloads(lessonId: string, activityId: string): Promise<Array<{ name: string; url: string }>> {
   const storage = createLocalStorageClient(LESSONS_BUCKET)
   const directory = `lessons/${lessonId}/activities/${activityId}`
   const { data, error } = await storage.list(directory, { limit: 100 })
@@ -92,7 +94,7 @@ async function readActivityDownloads(lessonId: string, activityId: string): Prom
       }),
   )
   return files
-    .filter((file): file is PupilPowerPointDownload => file !== null)
+    .filter((file): file is { name: string; url: string } => file !== null)
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -106,8 +108,9 @@ export async function readPupilPowerPointView(
   pupilId: string,
   viewerIsTeacher: boolean,
 ): Promise<PupilPowerPointView> {
-  const { rows } = await query<{ lesson_id: string; type: string | null; body_data: unknown }>(
-    "select lesson_id, type, body_data from activities where activity_id = $1",
+  const { rows } = await query<{ lesson_id: string; lesson_title: string | null; type: string | null; body_data: unknown }>(
+    `select a.lesson_id, l.title as lesson_title, a.type, a.body_data
+       from activities a join lessons l on l.lesson_id = a.lesson_id where a.activity_id = $1`,
     [activityId],
   )
   const activity = rows[0]
@@ -141,7 +144,11 @@ export async function readPupilPowerPointView(
         config.hasSuppliedImages
           ? listSuppliedImages(activityId).then((images) => images.map((image) => ({ name: image.file_name, url: image.url })))
           : Promise.resolve([]),
-      ])
+      ]).then((lists) =>
+        lists.map((files) =>
+          files.map((file) => ({ ...file, downloadName: lessonDownloadFileName(activity.lesson_title, file.name) })),
+        ),
+      )
   const questionPaperPath = body.success ? body.data.questionPaperPath ?? null : null
   const questionPaperUrl =
     questionPaperPath && !downloadsBlocked && sits ? assessmentScriptUrl(questionPaperPath) : null

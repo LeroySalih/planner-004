@@ -27,6 +27,7 @@ import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { pupilMayOpenAssessmentFile } from "@/lib/assessments/store"
 import {
   ASSESSMENT_SCRIPTS_BUCKET,
+  practicalActivityFileDownloadName,
   pupilFileDownloadName,
   pupilMayOpenAssessmentPaperFile,
 } from "@/lib/assessment-paper/files"
@@ -144,8 +145,11 @@ export async function GET(
   const typedMetadata = metadata as { content_type?: string; size_bytes?: number; file_name?: string }
   // A pupil's own assessment file (a script, or a practical assessment's
   // file) is stored as original.*; it downloads as "<pupil> - <name>".
+  // A practical assessment's own files (the template, starting database,
+  // supplied images, question paper) download with the lesson title first.
   const pupilFileName = bucket === ASSESSMENT_SCRIPTS_BUCKET ? await pupilFileDownloadName(decodedSegments) : null
-  const fileName = pupilFileName ?? typedMetadata.file_name ?? decodedSegments[decodedSegments.length - 1]
+  const activityFileName = pupilFileName ? null : await practicalActivityFileDownloadName(bucket, decodedSegments)
+  const fileName = pupilFileName ?? activityFileName ?? typedMetadata.file_name ?? decodedSegments[decodedSegments.length - 1]
 
   const inferContentType = () => {
     const name = fileName.toLowerCase()

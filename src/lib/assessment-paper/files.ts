@@ -13,7 +13,7 @@ import { isLessonLockedForUser } from "@/lib/lesson-lock"
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
 import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
-import { fileNameSafe, pupilDownloadFileName, pupilFullName } from "@/lib/storage/pupil-file-name"
+import { fileNameSafe, lessonDownloadFileName, pupilDownloadFileName, pupilFullName } from "@/lib/storage/pupil-file-name"
 import { AssessmentPaperActivityBodySchema } from "@/types"
 
 // Files of an assessment-paper activity, in their own bucket:
@@ -743,4 +743,46 @@ export async function pupilFileDownloadName(segments: string[]): Promise<string 
   )
   const row = rows[0]
   return row ? scriptFileName(row.title, row.first_name, row.last_name, extension) : null
+}
+
+export const PRACTICAL_QUESTION_PAPER_NAME = "Question paper.pdf"
+
+/**
+ * The name a practical assessment's own file downloads under, with the
+ * lesson title in front (lessonDownloadFileName): an activity file
+ * (lessons bucket, lessons/{lessonId}/activities/{activityId}/{name}), a
+ * supplied image (…/images/{generated name}, under the name the teacher gave
+ * it) or the question paper ({activityId}/paper/question-paper.pdf in the
+ * assessment-scripts bucket). Null, with no query, for any other path, and
+ * for an activity that is not a practical assessment.
+ */
+export async function practicalActivityFileDownloadName(bucket: string, segments: string[]): Promise<string | null> {
+  if (bucket === ASSESSMENT_SCRIPTS_BUCKET) {
+    const [activityId, folder, fileName, ...rest] = segments
+    if (!activityId || folder !== "paper" || fileName !== "question-paper.pdf" || rest.length > 0) return null
+    const { rows } = await query<{ type: string | null; title: string | null }>(
+      `select a.type, l.title from activities a join lessons l on l.lesson_id = a.lesson_id where a.activity_id = $1`,
+      [activityId],
+    )
+    const row = rows[0]
+    return row && isPracticalAssessmentType(row.type) ? lessonDownloadFileName(row.title, PRACTICAL_QUESTION_PAPER_NAME) : null
+  }
+  if (bucket !== "lessons") return null
+  const path = segments[0] === "lessons" ? segments.slice(1) : segments
+  const [lessonId, activities, activityId, ...rest] = path
+  if (!lessonId || activities !== "activities" || !activityId) return null
+  const image = rest.length === 2 && rest[0] === "images"
+  if (rest.length !== 1 && !image) return null
+  const { rows } = await query<{ type: string | null; title: string | null; image_name: string | null }>(
+    `select a.type, l.title,
+            (select i.file_name from practical_supplied_images i
+              where i.activity_id = a.activity_id and i.storage_path = $3) as image_name
+       from activities a join lessons l on l.lesson_id = a.lesson_id
+      where a.activity_id = $1 and a.lesson_id = $2`,
+    [activityId, lessonId, `lessons/${path.join("/")}`],
+  )
+  const row = rows[0]
+  if (!row || !isPracticalAssessmentType(row.type)) return null
+  const fileName = image ? row.image_name : rest[0]
+  return fileName ? lessonDownloadFileName(row.title, fileName) : null
 }

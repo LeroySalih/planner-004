@@ -28,3 +28,18 @@ export function pupilDownloadFileName(pupilName: string | null | undefined, file
   if (lowerFile.startsWith(lowerName) && !/^[\p{L}\p{N}]/u.test(lowerFile.slice(lowerName.length))) return fileName
   return `${name} - ${fileName}`
 }
+
+/**
+ * A practical assessment's own file (the evidence template, a starting
+ * database, a supplied image, the question paper) as it downloads:
+ * "<lesson title> <file name>", so a pupil's downloads folder says which
+ * assessment each file is for. Not doubled, and unchanged with no title.
+ */
+export function lessonDownloadFileName(lessonTitle: string | null | undefined, fileName: string): string {
+  const title = fileNameSafe(lessonTitle ?? "").slice(0, MAX_NAME_CHARS).trim()
+  if (!title) return fileName
+  const lowerFile = fileName.toLowerCase()
+  const lowerTitle = title.toLowerCase()
+  if (lowerFile.startsWith(lowerTitle) && !/^[\p{L}\p{N}]/u.test(lowerFile.slice(lowerTitle.length))) return fileName
+  return `${title} ${fileName}`
+}

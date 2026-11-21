@@ -624,7 +624,11 @@ types (spreadsheets …) are new registry entries and slot-kind readers.
   not doubled, unchanged with no name): practical files with their uploaded
   name, scripts (`/api/files` and the MCP script link) as `<pupil> - <activity title>.pdf`,
   the pupil's feedback PDF. `pupilFileDownloadName` (assessment-paper/files.ts)
-  looks it up for `/api/files`. Tests: `tests/powerpoint-assessment/download-names.check.ts`.
+  looks it up for `/api/files`. A practical assessment's own files (activity
+  files such as the evidence template and starting database, supplied images,
+  the question paper) download as `<lesson title> <name>` (`lessonDownloadFileName`;
+  `practicalActivityFileDownloadName` for `/api/files`, `downloadName` in the
+  pupil view). Tests: `tests/powerpoint-assessment/download-names.check.ts`.
 - **Views**: the results panel shows *Pupil's files* (reader status, missing
   headings, warnings, unplaced pictures), each question's evidence and
   screenshots, the marker's note, and a teacher *Hand in*. The pupil's
