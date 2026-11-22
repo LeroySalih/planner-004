@@ -14,7 +14,7 @@ import {
 import type { ModelJsonCall } from '@/lib/assessment-paper/reading'
 import { handInPowerPointAssessment, storePracticalFile } from '@/lib/powerpoint-assessment/files'
 import { runPowerPointMarkJob, runPowerPointReadJob } from '@/lib/powerpoint-assessment/jobs'
-import { POWERPOINT_MARK_SYSTEM, holdReason } from '@/lib/powerpoint-assessment/marking'
+import { POWERPOINT_MARK_SYSTEM, holdReason, isNotAHoldReason } from '@/lib/powerpoint-assessment/marking'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 
 // The marker's hold_for_teacher reply: a part that needs a value the report
@@ -27,6 +27,9 @@ import { createLocalStorageClient } from '@/lib/storage/local-storage'
 // hold; a teacher's row on a held part is untouched; the submission is marked
 // (the last job) with the held part named in mark_error; the held part awaits
 // the teacher's check and is not offered to "Send held questions".
+// A hold that is not a hold: N1 replies hold_for_teacher "None. …" beside
+// full criteria and is marked as usual; N2 replies "None of …" with no
+// criteria, which stays a hold: a real reason may start with "None".
 // Run with DATABASE_URL set (and MARKING_QUEUE_SECRET empty):
 //   npx tsx tests/powerpoint-assessment/hold-for-teacher.check.ts
 
@@ -45,6 +48,7 @@ const GROUP = `ppt-h-check-group-${tag}`
 const PUPIL = `ppt-h-check-pupil-${tag}`
 const SLOTS = [{ key: 'deck', label: 'Presentation', kind: 'pptx', required: true }]
 const HOLD = 'The colour of the text box on slide 1 is UNKNOWN in the report.'
+const N2_HOLD = 'None of the fill colours on slide 3 could be resolved (UNKNOWN in the report).'
 
 async function setUp() {
   const { rows: [{ subject }] } = await query<{ subject: string }>('select subject from subjects limit 1')
@@ -120,6 +124,33 @@ async function main() {
   check('holdReason: none when absent', holdReason({ criteria: [] }) === null)
   check('holdReason: none when the reason is empty', holdReason({ hold_for_teacher: { reason: '  ' } }) === null)
   check('holdReason: one line', holdReason({ hold_for_teacher: { reason: 'a\nb  c' } }) === 'a b c')
+  for (const reason of [
+    'None. Mark scheme and evidence are clear. All values are stated.',
+    'none',
+    'NONE!',
+    'N/A',
+    'n/a - nothing unknown',
+    'NA',
+    'null',
+    'No hold needed.',
+    'No-hold',
+    'Not needed',
+    'No issue.',
+    'No issues: the report states every value.',
+    '...',
+    '—',
+  ]) {
+    check(`isNotAHoldReason: "${reason}"`, isNotAHoldReason(reason))
+  }
+  for (const reason of [
+    HOLD,
+    'Name of the font on slide 2 is UNKNOWN.',
+    'Nonstandard fill on slide 3 is UNKNOWN in the report.',
+    'Nothing in the report gives the anchor of the title on slide 1 (UNKNOWN).',
+    'National flag image colour UNKNOWN on slide 4.',
+  ]) {
+    check(`holdReason: "${reason}" is a hold`, holdReason({ hold_for_teacher: { reason } }) === reason)
+  }
   check('the system prompt tells the marker to hold, not 0, on UNKNOWN',
     POWERPOINT_MARK_SYSTEM.includes('UNKNOWN (reader could not resolve), do not give 0') && POWERPOINT_MARK_SYSTEM.includes('hold_for_teacher'))
 
@@ -140,7 +171,7 @@ async function main() {
       evidence: [{ source: 'presentation', slot: 'deck', sections: ['slides:1'] }],
       criteria: [{ successCriteriaId: A, maxMarks: 1 }, { successCriteriaId: B, maxMarks: 1 }],
     })
-    const saved = await setAssessmentQuestions(PPT, [q('H1'), q('H2'), q('M1')])
+    const saved = await setAssessmentQuestions(PPT, [q('H1'), q('H2'), q('M1'), q('N1'), q('N2')])
     const id = (label: string) => saved.find((s) => s.label === label)!.questionId
 
     await storePracticalFile({ activityId: PPT, pupilId: PUPIL, slotKey: 'deck', bytes: await readFile(FIXTURE), originalName: 'deck.pptx', uploadedBy: PUPIL })
@@ -154,25 +185,33 @@ async function main() {
     await recordQuestionCriterionMarks(sub, [{ questionId: id('H2'), successCriteriaId: A, awarded: 1, whyNotAwarded: null, howToImprove: null }], 'teacher')
 
     const prompts: string[] = []
+    const calls = new Map<string, number>()
     const stub: ModelJsonCall = async (request) => {
       const prompt = request.parts[0]?.text ?? ''
       prompts.push(prompt)
       const label = /^PART (\S+) /.exec(prompt)?.[1] ?? '?'
+      calls.set(label, (calls.get(label) ?? 0) + 1)
       const criteria = [A, B].map((c) => ({ success_criteria_id: c, awarded: 1, why_not_awarded: '', how_to_improve: '' }))
       const data = label === 'M1'
         ? { evidence_note: 'All points met.', criteria }
-        : { evidence_note: 'The fill colour is UNKNOWN.', criteria, hold_for_teacher: { reason: HOLD } }
+        : label === 'N1'
+          ? { evidence_note: 'All points met.', criteria, hold_for_teacher: { reason: 'None. Mark scheme and evidence are clear. The fill is stated.' } }
+          : label === 'N2'
+            ? { evidence_note: 'The fill colours are UNKNOWN.', hold_for_teacher: { reason: N2_HOLD } }
+            : { evidence_note: 'The fill colour is UNKNOWN.', criteria, hold_for_teacher: { reason: HOLD } }
       return { data: data as never, raw: JSON.stringify(data), durationMs: 3, attempts: 1 }
     }
 
     const jobs = await claim(sub, 'ai_mark')
-    check('three mark jobs', jobs.length === 3, String(jobs.length))
+    check('five mark jobs', jobs.length === 5, String(jobs.length))
     // M1 last, so it is the job that completes the submission.
     const ordered = [...jobs].sort((a, b) => (a.questionId === id('M1') ? 1 : 0) - (b.questionId === id('M1') ? 1 : 0))
     for (const job of ordered) await runPowerPointMarkJob(job, stub)
+    check('N2 was asked once', calls.get('N2') === 1, String(calls.get('N2')))
 
     check('the prompt gives the report with UNKNOWN', prompts.some((p) => p.includes('UNKNOWN (reader could not resolve)')))
     check('the prompt tells the marker about hold_for_teacher', prompts.every((p) => p.includes('- hold_for_teacher:')))
+    check('and to leave it out when nothing needs the teacher', prompts.every((p) => p.includes('When nothing needs the teacher, leave hold_for_teacher out entirely')))
 
     const h1 = await marksOf(sub, id('H1'))
     check('H1: no AI marks', h1.length === 0, JSON.stringify(h1))
@@ -182,8 +221,15 @@ async function main() {
       JSON.stringify(h2))
     const m1 = await marksOf(sub, id('M1'))
     check('M1: marked as usual', m1.length === 2 && m1.every((r) => r.provenance === 'ai' && r.awarded === 1), JSON.stringify(m1))
+    const n1 = await marksOf(sub, id('N1'))
+    check('N1: a "None." hold beside full criteria is marked as usual', n1.length === 2 && n1.every((r) => r.provenance === 'ai' && r.awarded === 1 && r.ai_awarded === 1), JSON.stringify(n1))
+    const n2 = await marksOf(sub, id('N2'))
+    check('N2: a "None of …" reason with no criteria is held: no AI marks', n2.length === 0, JSON.stringify(n2))
 
     const answers = await readSubmissionAnswers(sub)
+    check('N1: its answer is not held', answers.get(id('N1'))?.status !== 'unreadable', JSON.stringify(answers.get(id('N1'))))
+    check('N2: its answer is held with the reason', answers.get(id('N2'))?.status === 'unreadable'
+      && (answers.get(id('N2'))?.transcription ?? '').includes('None of the fill colours'), JSON.stringify(answers.get(id('N2'))))
     const a1 = answers.get(id('H1'))
     check('H1: the answer is held (unreadable) with the reason',
       a1?.status === 'unreadable' && a1.kind === 'mixed' && a1.transcription === `the marker could not check it: ${HOLD.replace(/\.$/, '')}; mark it yourself.`,
@@ -198,18 +244,21 @@ async function main() {
       "select status, model_response as response, payload->>'questionId' as question_id from external_jobs where job_type = 'ai_mark' and payload->>'submissionId' = $1",
       [sub],
     )
-    check('every mark job is closed', jobRows.length === 3 && jobRows.every((j) => j.status === 'done'), JSON.stringify(jobRows.map((j) => j.status)))
+    check('every mark job is closed', jobRows.length === 5 && jobRows.every((j) => j.status === 'done'), JSON.stringify(jobRows.map((j) => j.status)))
     const h1Job = jobRows.find((j) => j.question_id === id('H1'))
     check('the job row records the hold and no marks', h1Job?.response?.holdForTeacher === HOLD && h1Job.response.criteria.length === 0, JSON.stringify(h1Job?.response))
+    const n1Job = jobRows.find((j) => j.question_id === id('N1'))
+    check('the N1 job row records marks and no hold', n1Job?.response?.holdForTeacher === undefined && n1Job?.response?.criteria?.length === 2, JSON.stringify(n1Job?.response))
 
     const after = await submission()
     check('the submission is marked, as with a held screenshot', after.mark_status === 'marked', String(after.mark_status))
     check('mark_error names H1 and why', /question H1: the marker could not check it: The colour of the text box/.test(after.mark_error ?? ''), String(after.mark_error))
     check('mark_error does not name H2 (a teacher has marked it)', !/question H2/.test(after.mark_error ?? ''), String(after.mark_error))
+    check('mark_error names N2 but not N1', /question N2: the marker could not check it: None of the fill colours/.test(after.mark_error ?? '') && !/question N1/.test(after.mark_error ?? ''), String(after.mark_error))
 
     const awaiting = (await listQuestionsAwaitingCheck(PPT, sub)).map((r) => r.questionId)
-    check('H1 awaits the teacher\'s check', awaiting.includes(id('H1')), JSON.stringify(awaiting))
-    check('H2 (teacher-marked) and M1 do not', !awaiting.includes(id('H2')) && !awaiting.includes(id('M1')), JSON.stringify(awaiting))
+    check('H1 and N2 await the teacher\'s check', awaiting.includes(id('H1')) && awaiting.includes(id('N2')), JSON.stringify(awaiting))
+    check('H2 (teacher-marked), M1 and N1 do not', ['H2', 'M1', 'N1'].every((l) => !awaiting.includes(id(l))), JSON.stringify(awaiting))
     const held = await listHeldQuestionsToSend(PPT)
     check('"Send held questions" does not send the held part again', !held.some((h) => h.questionId === id('H1')), JSON.stringify(held))
   } finally {

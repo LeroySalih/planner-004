@@ -1,10 +1,10 @@
 import "server-only"
 
 import { query, withDbClient } from "@/lib/db"
-import { resolveModelRoute } from "@/lib/ai/model-routing"
+import { resolveQuestionModelRoute } from "@/lib/assessment-paper/question-model-route"
 import { logQueueEvent } from "@/lib/ai/marking-log"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
-import { activityOf, recordCall, type AssessmentJob } from "@/lib/assessment-paper/jobs"
+import { activityOf, logIgnoredQuestionModel, logIgnoredTextAnswerRoute, recordCall, type AssessmentJob } from "@/lib/assessment-paper/jobs"
 import type { ModelJsonCall } from "@/lib/assessment-paper/reading"
 import {
   completeAssessmentQuestionMark,
@@ -147,12 +147,18 @@ export async function runPowerPointMarkJob(
   call?: ModelJsonCall,
 ): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean }> {
   const { activityId, type } = await activityOf(job.submissionId)
-  const route = await resolveModelRoute(type, null)
+  // The question's own model, else the type's text-question route when the
+  // question sends no pictures and that route has its own row (migration
+  // 150), else the activity-wide route.
+  const route = await resolveQuestionModelRoute(type, job.questionId)
   const label = labelOf(type)
+  await logIgnoredQuestionModel(route, job)
+  await logIgnoredTextAnswerRoute(route, job)
   await logQueueEvent("info", `Marking ${label} submission ${job.submissionId}`, {
     questionId: job.questionId,
     provider: route.provider,
     model: route.model,
+    modelSource: route.source,
   })
 
   const marked = await markPowerPointQuestion(

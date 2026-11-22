@@ -9,6 +9,9 @@ import { countFrontSheetChecks, listUnmarkedScriptSubmissions } from "@/lib/asse
 import { listUnmarkedPowerPointSubmissions } from "@/lib/powerpoint-assessment/files"
 import type { QuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
 import { practicalBodySchema } from "@/lib/practical-assessment/types"
+import { MODEL_CATALOGUE, findCatalogueEntry, findOwnModelRoute, resolveModelRoute } from "@/lib/ai/model-routing"
+import { ASSESSMENT_TEXT_ANSWER_SURFACE, textAnswerRouteProblem, textRouteSurface } from "@/lib/assessment-paper/question-model-route"
+import { selectableQuestionModels } from "@/lib/assessment-paper/question-model"
 import { AssessmentPaperActivityBodySchema, PRACTICAL_UPLOAD_SLOT_KINDS, type PracticalUploadSlot, uploadSlotSchema } from "@/types"
 
 // An assessment paper as the lesson editor and the teacher views show it: its
@@ -36,7 +39,18 @@ const QuestionSchema = z.object({
   dependsOn: z.string().nullable(),
   /** PowerPoint assessment: where the question's evidence comes from (evidence-spec.ts). [] on a paper. */
   evidence: z.array(z.unknown()).transform((sources) => sources as QuestionEvidence[]),
+  /** The model that marks it (migration 148); null = the activity default. */
+  markingModel: z.string().nullable(),
   criteria: z.array(QuestionCriterionSchema),
+})
+
+const MarkingModelOptionSchema = z.object({
+  provider: z.string(),
+  model: z.string(),
+  label: z.string(),
+  kind: z.enum(["text", "image"]),
+  visionTier: z.enum(["high", "standard"]),
+  available: z.boolean(),
 })
 
 const PowerPointSetupSchema = z.object({
@@ -74,6 +88,19 @@ const SetupSchema = z.object({
   /** Questions held at the read for want of a mark scheme that have one now (Send held questions). */
   heldToSend: z.object({ questions: z.number().int(), pupils: z.number().int() }),
   questions: z.array(QuestionSchema),
+  /** The models a question may name (question-model.ts); the editor disables standard-tier ones on questions that send pictures. */
+  markingModels: z.array(MarkingModelOptionSchema),
+  /** The activity's route (ai_model_routes): what marks a question that names no model. */
+  defaultMarkingModel: z.object({ provider: z.string(), model: z.string(), label: z.string() }),
+  /** Paper only: the text-answer route (migration 149) that marks answers read as text when no question model is set; null when none is usable. */
+  textAnswerMarkingModel: z.object({ provider: z.string(), model: z.string(), label: z.string() }).nullable(),
+  /**
+   * Practical types only: the type's text-question route (migration 150) that
+   * marks a question sending no pictures when no question model is set; null
+   * when none is usable, and on a paper. The editor picks between it and
+   * defaultMarkingModel as the question's evidence changes.
+   */
+  textQuestionMarkingModel: z.object({ provider: z.string(), model: z.string(), label: z.string() }).nullable(),
   /** Any practical assessment's files; null on an assessment paper. */
   powerpoint: PowerPointSetupSchema.nullable(),
 })
@@ -121,6 +148,17 @@ export async function readAssessmentPaperSetup(activityId: string): Promise<Asse
     isPractical ? readPracticalSetup(activityId, row.type, row.body_data) : Promise.resolve(null),
   ])
   const labelOf = new Map(questions.map((q) => [q.questionId, q.label]))
+  const route = await resolveModelRoute(row.type, null)
+  const textRoute = isPractical ? null : await findOwnModelRoute(ASSESSMENT_TEXT_ANSWER_SURFACE)
+  const usableTextRoute = textRoute && !textAnswerRouteProblem(textRoute) ? textRoute : null
+  const questionSurface = isPractical ? textRouteSurface(row.type) : null
+  const questionRoute = questionSurface ? await findOwnModelRoute(questionSurface) : null
+  const usableQuestionRoute = questionRoute && questionSurface && !textAnswerRouteProblem(questionRoute, questionSurface) ? questionRoute : null
+  const modelLabel = (choice: { provider: string; model: string }) => ({
+    provider: choice.provider,
+    model: choice.model,
+    label: findCatalogueEntry(choice.provider, choice.model)?.label ?? choice.model,
+  })
 
   return SetupSchema.parse({
     activityId: row.activity_id,
@@ -151,12 +189,34 @@ export async function readAssessmentPaperSetup(activityId: string): Promise<Asse
       marking: q.marking,
       dependsOn: q.dependsOnQuestionId ? labelOf.get(q.dependsOnQuestionId) ?? null : null,
       evidence: q.evidence ?? [],
+      markingModel: q.markingModel,
       criteria: q.criteria.map((c) => ({
         successCriteriaId: c.successCriteriaId,
         description: descriptionOf.get(c.successCriteriaId) ?? "",
         maxMarks: c.maxMarks,
       })),
     })),
+    markingModels: selectableQuestionModels(MODEL_CATALOGUE).map((entry) => ({
+      provider: entry.provider,
+      model: entry.model,
+      label: entry.label,
+      kind: entry.kind,
+      visionTier: entry.visionTier,
+      available: entry.available,
+    })),
+    defaultMarkingModel: {
+      provider: route.provider,
+      model: route.model,
+      label: findCatalogueEntry(route.provider, route.model)?.label ?? route.model,
+    },
+    textAnswerMarkingModel: usableTextRoute
+      ? {
+          provider: usableTextRoute.provider,
+          model: usableTextRoute.model,
+          label: findCatalogueEntry(usableTextRoute.provider, usableTextRoute.model)?.label ?? usableTextRoute.model,
+        }
+      : null,
+    textQuestionMarkingModel: usableQuestionRoute ? modelLabel(usableQuestionRoute) : null,
     powerpoint,
   })
 }

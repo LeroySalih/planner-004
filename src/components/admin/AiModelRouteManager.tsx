@@ -35,6 +35,8 @@ export type SurfaceOption = {
   kind: 'text' | 'image'
   /** Narrower than `kind` where the surface only works on some providers. */
   providers?: AiProvider[]
+  /** Shown when the surface has no row; "built-in default" when omitted. */
+  unsetLabel?: string
 }
 
 type Props = {
@@ -304,7 +306,7 @@ export function AiModelRouteManager({
                   onChange={(e) => handleModelChange(surface.key, null, e.target.value)}
                   className="w-64 shrink-0 rounded-md border border-border bg-background px-2 py-1.5 text-sm"
                 >
-                  <option value="">— built-in default —</option>
+                  <option value="">{surface.unsetLabel ?? '— built-in default —'}</option>
                   {options.map((c) => (
                     <option key={optionValue(c.provider, c.model)} value={optionValue(c.provider, c.model)} disabled={!c.available}>
                       {c.label}

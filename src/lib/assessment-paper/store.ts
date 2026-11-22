@@ -11,6 +11,8 @@ import {
 import { assertScAllowedForActivity, type Queryable } from "@/lib/curriculum/unit-curriculum-guard"
 import { recalculateAssessmentPaperMaxMarks } from "@/lib/scoring/derive-max-marks"
 import { validateQuestionEvidence, type QuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
+import { MODEL_CATALOGUE } from "@/lib/ai/model-routing"
+import { questionModelProblem } from "@/lib/assessment-paper/question-model"
 import type { PracticalAssessmentType } from "@/lib/practical-assessment/types"
 
 // An assessment paper is marked question by question. Each question splits
@@ -93,6 +95,8 @@ export interface AssessmentQuestion {
   dependsOnQuestionId: string | null
   /** Practical assessment (PowerPoint or database): where the question's evidence comes from. Always [] on an assessment paper. */
   evidence: QuestionEvidence[]
+  /** The MODEL_CATALOGUE model that marks it (migration 148); null = the activity's route. */
+  markingModel: string | null
   criteria: AssessmentQuestionCriterion[]
 }
 
@@ -111,6 +115,13 @@ export interface AssessmentQuestionInput {
    * new question gets none). An assessment paper takes none.
    */
   evidence?: unknown[]
+  /**
+   * A MODEL_CATALOGUE text model id to mark this question, or null for the
+   * activity's route. Omitted: unchanged (a new question gets null). A model
+   * without high-resolution vision is refused when the question sends
+   * pictures (question-model.ts).
+   */
+  markingModel?: string | null
   criteria: Array<{ successCriteriaId: string; maxMarks: number }>
 }
 
@@ -143,10 +154,11 @@ async function readQuestions(db: Queryable, activityId: string): Promise<Assessm
     marking: QuestionMarking
     depends_on_question_id: string | null
     evidence: QuestionEvidence[] | null
+    marking_model: string | null
     criteria: AssessmentQuestionCriterion[] | null
   }>(
     `select q.question_id, q.label, q.position, q.max_marks, q.question_text, q.mark_scheme,
-            q.marking, q.depends_on_question_id, q.evidence,
+            q.marking, q.depends_on_question_id, q.evidence, q.marking_model,
             (select jsonb_agg(jsonb_build_object(
                       'successCriteriaId', c.success_criteria_id,
                       'maxMarks', c.max_marks,
@@ -169,6 +181,7 @@ async function readQuestions(db: Queryable, activityId: string): Promise<Assessm
     marking: row.marking,
     dependsOnQuestionId: row.depends_on_question_id,
     evidence: row.evidence ?? [],
+    markingModel: row.marking_model,
     criteria: row.criteria ?? [],
   }))
 }
@@ -206,6 +219,11 @@ function validateQuestions(questions: AssessmentQuestionInput[]): AssessmentQues
     }
     seen.add(label)
 
+    if (question.markingModel !== undefined && question.markingModel !== null && typeof question.markingModel !== "string") {
+      throw new Error(`Question "${label}" has an unknown marking model: ${JSON.stringify(question.markingModel)}.`)
+    }
+    const markingModel = question.markingModel === undefined ? undefined : question.markingModel?.trim() || null
+
     if (!Number.isInteger(question.maxMarks) || question.maxMarks < 1) {
       throw new Error(`Question "${label}" must be worth a whole number of marks, at least 1.`)
     }
@@ -231,8 +249,45 @@ function validateQuestions(questions: AssessmentQuestionInput[]): AssessmentQues
       )
     }
 
-    return { ...question, label, dependsOn }
+    return { ...question, label, dependsOn, markingModel }
   })
+}
+
+/**
+ * Each question's marking model once saved (the input's, else the stored
+ * one), checked against the catalogue and the picture rule on the question
+ * as it will be (its resulting evidence). A stored model is checked only by
+ * the picture rule: one that has left the catalogue falls back at mark time
+ * rather than blocking every save. Throws every problem at once.
+ */
+async function checkQuestionModels(
+  client: Queryable,
+  activityId: string,
+  type: string | null,
+  questions: AssessmentQuestionInput[],
+  evidence: QuestionEvidence[][],
+): Promise<void> {
+  const { rows: stored } = await client.query<{ label: string; marking_model: string | null }>(
+    "select label, marking_model from activity_questions where activity_id = $1",
+    [activityId],
+  )
+  const storedModel = new Map(stored.map((row) => [row.label, row.marking_model]))
+  const problems: string[] = []
+  for (const [position, question] of questions.entries()) {
+    const given = question.markingModel !== undefined
+    const model = given ? question.markingModel ?? null : storedModel.get(question.label) ?? null
+    if (model === null) continue
+    if (!given && !MODEL_CATALOGUE.some((entry) => entry.model === model)) continue
+    const problem = questionModelProblem({
+      label: question.label,
+      type,
+      evidence: evidence[position],
+      model,
+      catalogue: MODEL_CATALOGUE,
+    })
+    if (problem) problems.push(problem)
+  }
+  if (problems.length > 0) throw new Error(problems.join(" "))
 }
 
 /**
@@ -308,6 +363,7 @@ export async function setAssessmentQuestions(
         throw new Error(`Activity ${activityId} is not an assessment paper.`)
       }
       const evidence = await checkQuestionEvidence(client, activityId, activityRows[0], questions)
+      await checkQuestionModels(client, activityId, activityRows[0].type, questions, evidence)
       // Locked up front, before any marks move, in the same order a marking
       // write takes them (submission first), so the two cannot deadlock.
       const { rows: submissions } = await client.query<{ submission_id: string }>(
@@ -353,21 +409,23 @@ export async function setAssessmentQuestions(
         const { rows: saved } = await client.query<{ question_id: string }>(
           `with upserted as (
              insert into activity_questions
-               (activity_id, label, position, max_marks, question_text, mark_scheme, marking, evidence)
-             values ($1, $2, $3, $4, $5, $6, coalesce($7, 'ai'), coalesce($8::jsonb, '[]'::jsonb))
+               (activity_id, label, position, max_marks, question_text, mark_scheme, marking, evidence, marking_model)
+             values ($1, $2, $3, $4, $5, $6, coalesce($7, 'ai'), coalesce($8::jsonb, '[]'::jsonb), $10::text)
              on conflict (activity_id, label) do update
                set position = excluded.position, max_marks = excluded.max_marks,
                    question_text = excluded.question_text, mark_scheme = excluded.mark_scheme,
                    marking = coalesce($7, activity_questions.marking),
                    evidence = coalesce($8::jsonb, activity_questions.evidence),
+                   marking_model = case when $9::boolean then $10::text else activity_questions.marking_model end,
                    updated_at = timezone('utc', now())
                where (activity_questions.position, activity_questions.max_marks,
                       activity_questions.question_text, activity_questions.mark_scheme,
-                      activity_questions.marking, activity_questions.evidence)
+                      activity_questions.marking, activity_questions.evidence, activity_questions.marking_model)
                      is distinct from (excluded.position, excluded.max_marks,
                                        excluded.question_text, excluded.mark_scheme,
                                        coalesce($7, activity_questions.marking),
-                                       coalesce($8::jsonb, activity_questions.evidence))
+                                       coalesce($8::jsonb, activity_questions.evidence),
+                                       case when $9::boolean then $10::text else activity_questions.marking_model end)
              returning question_id
            )
            select question_id from upserted
@@ -383,6 +441,8 @@ export async function setAssessmentQuestions(
             question.markScheme?.trim() || null,
             question.marking ?? null,
             question.evidence === undefined ? null : JSON.stringify(evidence[position]),
+            question.markingModel !== undefined,
+            question.markingModel ?? null,
           ],
         )
         const questionId = saved[0].question_id

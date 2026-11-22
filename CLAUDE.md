@@ -264,6 +264,9 @@ than a second mechanism that drifts:
 | `surface:image-generation` | sketch render + AI-proposed lesson images |
 | `surface:assessment-read` | the read of each assessment paper script before it is marked |
 | `surface:assessment-mark-scheme` | splitting an assessment paper's mark scheme PDF by question |
+| `surface:assessment-mark-text` | marking an assessment paper answer the reader read as text (with its page images) |
+| `surface:powerpoint-mark-text` | marking a PowerPoint assessment question whose evidence sends no pictures (report, typed text, reference file) |
+| `surface:database-mark-text` | marking a database assessment question whose evidence sends no pictures (report, typed text, reference file) |
 
 Catalogue entries carry `kind: "text" | "image"`, and the admin screen only
 offers models that can do the job — image generation cannot run on a text model
@@ -611,7 +614,9 @@ types (spreadsheets …) are new registry entries and slot-kind readers.
   given 0: the marker replies `hold_for_teacher: {reason}`, and
   `completeAssessmentQuestionMark` holds it like an EMF screenshot (no AI
   rows, teacher rows kept, answer `unreadable` with the reason, named in
-  `mark_error`, *Check* in the results panel). Tests:
+  `mark_error`, *Check* in the results panel). A reason such as "None" or
+  "N/A" (`isNotAHoldReason`) is dropped when the reply marks every criterion
+  (Haiku did this); with no valid criteria it stays a hold. Tests:
   `tests/powerpoint-assessment/hold-for-teacher.check.ts`.
 - **Privacy**: no pupil file name reaches a model, a job row or
   `ai_marking_logs` (slot label + file id + extension instead; the upload
@@ -810,6 +815,53 @@ the old `defaultMarkingModel()`, so an install with no rows — or with migratio
   page lists. Keep it in step with the AI branch of
   `compute_submission_base_score`, or a type will be marked but read back as
   unscored.
+
+**Per question on question-marked types** (migration 148):
+`activity_questions.marking_model` names a `MODEL_CATALOGUE` text model for
+one question of an assessment paper, PowerPoint or database assessment; null
+uses the activity's route as above. Set it in the lesson editor (*Marking
+model*) or MCP `set_assessment_activity_questions` (`marking_model`, kept when
+omitted, null clears). **Image comparison stays on a high-resolution vision
+model**: `questionSendsImages(type, evidence)` (`src/lib/assessment-paper/question-model.ts`)
+is true for every assessment-paper question and for a practical question with
+a `slide_images`, `file` or `evidence_section` (want not `text`) source, and
+then a standard-tier model (Haiku, Gemini Flash) is refused on save, the check
+running on the question as saved. At mark time `resolveQuestionModelRoute`
+(`question-model-route.ts`) uses the question's model only if it is still
+allowed, else the activity route with a `warn` in `ai_marking_logs`. Tests:
+`tests/assessment-paper/question-model.check.ts`.
+
+**Text answers on a paper** (migration 149): with no question model, a
+paper answer the reader stored as `kind = 'text'`, `status = 'answered'` is
+marked on route `surface:assessment-mark-text` (seeded Claude Haiku 4.5, page
+images still sent; an eval matched Sonnet on text answers); sketch, mixed,
+unreadable and continued answers keep `(assessment-paper, NULL)`. So the
+order is question model → text route → paper route. Without an active row for
+that key (`findOwnModelRoute`, never `DEFAULT_ROUTE`), or naming a model that
+is not an available catalogue text model (with a `warn`), it falls back to the
+paper route. Only this question's own answer decides, never a `depends_on`
+one. Practical types do not use this key (see below). The log's `modelSource` is `question`,
+`text-answers` or `activity`; MCP `get_assessment_activity` reports
+`text_answer_marking_model`. Tests:
+`tests/assessment-paper/text-answer-route.check.ts`.
+
+**Text-only questions on a practical type** (migration 150): with no
+question model, a PowerPoint or database question whose evidence sends no
+pictures (`questionSendsImages` false: `presentation`, `database`,
+`reference_file`, `evidence_section` with want `text`) is marked on its
+type's route, `surface:powerpoint-mark-text` (seeded Claude Haiku 4.5; an eval
+matched Sonnet on PowerPoint) or `surface:database-mark-text` (**not seeded**:
+database assessments stay on their activity route until an admin adds a row).
+Questions with `slide_images`, `file` or screenshots keep the activity route.
+So the order is question model → text-question route → activity route, by
+`chooseQuestionModel` in `question-model-route.ts` (`textRouteSurface` picks
+the key). No active row → the activity route (never `DEFAULT_ROUTE`); a row
+naming a model that is not an available catalogue text model → the activity
+route with a `warn`. The log's `modelSource` is `text-questions`; MCP
+`get_assessment_activity`'s `effective_marking_model` includes it, and the
+editor's *Activity default* label follows the question's evidence as it is
+edited (setup `textQuestionMarkingModel`). Tests:
+`tests/powerpoint-assessment/text-question-route.check.ts`.
 
 ### Reviewing chat runs
 

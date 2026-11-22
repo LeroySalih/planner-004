@@ -158,6 +158,12 @@ export interface ModelSurface {
    * kind will do.
    */
   providers?: readonly AiProvider[]
+  /**
+   * What the admin screen shows when the surface has no row. Omit for
+   * "built-in default"; set it where an unset surface falls back to another
+   * route instead (the text-marking surfaces fall back to the activity's).
+   */
+  unsetLabel?: string
 }
 
 export const MODEL_SURFACES: readonly ModelSurface[] = Object.freeze([
@@ -186,6 +192,27 @@ export const MODEL_SURFACES: readonly ModelSurface[] = Object.freeze([
     label: "Assessment paper read",
     description: "Reads each pupil's assessment paper script, question by question, before it is marked",
     kind: "text",
+  },
+  {
+    key: "surface:assessment-mark-text",
+    label: "Assessment paper: text answers",
+    description: "Marks the assessment paper answers the reader read as typed or handwritten text, with their page images. Sketches, mixed and unreadable answers use the assessment-paper route",
+    kind: "text",
+    unsetLabel: "— the assessment-paper route —",
+  },
+  {
+    key: "surface:powerpoint-mark-text",
+    label: "PowerPoint assessment: text-only questions",
+    description: "Marks the PowerPoint assessment questions whose evidence sends no pictures (the presentation report, typed text, a reference file). Questions with slide pictures, PDFs or screenshots use the powerpoint-assessment route",
+    kind: "text",
+    unsetLabel: "— the powerpoint-assessment route —",
+  },
+  {
+    key: "surface:database-mark-text",
+    label: "Database assessment: text-only questions",
+    description: "Marks the database assessment questions whose evidence sends no pictures (the database report, typed text, a reference file). Questions with PDFs or screenshots use the database-assessment route",
+    kind: "text",
+    unsetLabel: "— the database-assessment route —",
   },
   {
     key: "surface:assessment-mark-scheme",
@@ -314,6 +341,19 @@ export async function resolveModelRoute(
     if (specific) return specific
   }
   return routes.get(cacheKey(type, null)) ?? DEFAULT_ROUTE
+}
+
+/**
+ * The key's own active activity-wide row, or null when it has none (no row,
+ * or the row is inactive). Unlike resolveModelRoute, never DEFAULT_ROUTE: for
+ * a caller with its own fallback, such as text answers on an assessment paper
+ * falling back to the paper's route. Same 30 s cache.
+ */
+export async function findOwnModelRoute(key: string): Promise<ModelChoice | null> {
+  const type = key.trim().toLowerCase()
+  if (!type) return null
+  const routes = await loadRoutes()
+  return routes.get(cacheKey(type, null)) ?? null
 }
 
 /** Every configured route, newest edit first. For the admin screen. */

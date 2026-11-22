@@ -3,6 +3,9 @@ import { z } from 'zod'
 import { query } from '@/lib/db'
 import { isAssessmentPaperType, isDatabaseAssessmentType, isPowerPointAssessmentType, isPracticalAssessmentType, isQuestionMarkedActivityType } from '@/dino.config'
 import { triggerQueueProcessor } from '@/lib/ai/marking-queue'
+import { MODEL_CATALOGUE, findOwnModelRoute, resolveModelRoute } from '@/lib/ai/model-routing'
+import { chooseQuestionModel, textRouteSurface } from '@/lib/assessment-paper/question-model-route'
+import { highVisionQuestionModels, selectableQuestionModels } from '@/lib/assessment-paper/question-model'
 import { countFrontSheetChecks, markingAssignmentIdFor, scriptFileName } from '@/lib/assessment-paper/files'
 import { readAssessmentPaperResult } from '@/lib/assessment-paper/results'
 import { readQuestionFlags, type QuestionFlagState } from '@/lib/assessment-paper/question-flags'
@@ -75,6 +78,16 @@ export const AssessmentActivityQuestionsInput = jsonArray(
         + '| { source: "database", slot, sections?, required? }). presentation and slide_images are PowerPoint only; database is database assessments only. '
         + 'Omit to keep the current sources; [] clears them. Refused on an assessment paper.',
       ),
+    marking_model: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        `The model that marks this question: one of ${selectableQuestionModels(MODEL_CATALOGUE).map((e) => `"${e.model}"`).join(', ')}, `
+        + 'or null for the activity default (its route at /admin/ai-models). Omit to keep the current one. '
+        + `A question whose marker is sent pictures (every assessment-paper question; slide_images, file, or evidence_section with want "screenshots" or "both") `
+        + `must use a high-resolution vision model (${highVisionQuestionModels(MODEL_CATALOGUE).map((e) => `"${e.model}"`).join(' or ')}).`,
+      ),
     criteria: jsonArray(
       z.object({
         success_criteria_id: z.string().min(1).describe('A success criterion the question tests.'),
@@ -96,6 +109,7 @@ export function toAssessmentQuestionInputs(
     ...(q.marking === undefined ? {} : { marking: q.marking }),
     ...(q.depends_on === undefined ? {} : { dependsOn: q.depends_on?.trim() || null }),
     ...(q.evidence === undefined ? {} : { evidence: q.evidence }),
+    ...(q.marking_model === undefined ? {} : { markingModel: q.marking_model?.trim() || null }),
     criteria: q.criteria.map((c) => ({ successCriteriaId: c.success_criteria_id, maxMarks: c.max_marks })),
   }))
 }
@@ -236,8 +250,14 @@ function describeBody(bodyData: unknown) {
   }
 }
 
-async function readQuestionsWithCriteria(activityId: string, options?: { evidence?: boolean }) {
+async function readQuestionsWithCriteria(activityId: string, options?: { evidence?: boolean; modelsFor?: string | null }) {
   const questions = await readAssessmentQuestions(activityId)
+  const activityRoute = options?.modelsFor !== undefined ? await resolveModelRoute(options.modelsFor, null) : null
+  // A paper marks an answer read as text on its own route (migration 149); a
+  // practical type marks a question that sends no pictures on its own route
+  // (migration 150); each only when it has an active row.
+  const textSurface = activityRoute ? textRouteSurface(options!.modelsFor) : null
+  const textRoute = textSurface ? await findOwnModelRoute(textSurface) : null
   const ids = Array.from(new Set(questions.flatMap((q) => q.criteria.map((c) => c.successCriteriaId))))
   const { rows } = await query<{ success_criteria_id: string; description: string | null }>(
     'select success_criteria_id, description from success_criteria where success_criteria_id = any($1::text[])',
@@ -255,6 +275,25 @@ async function readQuestionsWithCriteria(activityId: string, options?: { evidenc
     marking: q.marking,
     depends_on: q.dependsOnQuestionId ? labelOf.get(q.dependsOnQuestionId) ?? null : null,
     ...(options?.evidence ? { evidence: q.evidence as QuestionEvidence[] } : {}),
+    ...(activityRoute
+      ? (() => {
+          const isPaper = isAssessmentPaperType(options!.modelsFor)
+          // A practical question's evidence decides its text route, so it is in the effective model.
+          const chosen = chooseQuestionModel(options!.modelsFor, q, activityRoute, isPaper ? null : textRoute)
+          return {
+            // null = the activity default (its route at /admin/ai-models).
+            marking_model: q.markingModel,
+            // What marks it now: the question's model, else (practical, no pictures sent)
+            // the type's text-question route, else the activity's route.
+            effective_marking_model: chosen.model,
+            ...(chosen.ignored ? { marking_model_ignored: chosen.ignored.reason } : {}),
+            // Paper only: what marks an answer read as text (the question's model, else the text-answer route).
+            ...(isPaper
+              ? { text_answer_marking_model: chooseQuestionModel(options!.modelsFor, q, activityRoute, textRoute).model }
+              : {}),
+          }
+        })()
+      : {}),
     criteria: q.criteria.map((c) => ({
       success_criteria_id: c.successCriteriaId,
       description: descriptions.get(c.successCriteriaId) ?? '',
@@ -337,7 +376,10 @@ export type AssessmentActivityPupilProgress = {
  */
 export async function getAssessmentActivity(activityId: string) {
   const activity = await readActivity(activityId)
-  const questions = await readQuestionsWithCriteria(activityId, { evidence: isPracticalAssessmentType(activity.type) })
+  const questions = await readQuestionsWithCriteria(activityId, {
+    evidence: isPracticalAssessmentType(activity.type),
+    modelsFor: activity.type,
+  })
   const maxMarks = Number(activity.max_marks) || 0
 
   const { rows: pupils } = await query<{

@@ -2,6 +2,7 @@ import "server-only"
 
 import { query } from "@/lib/db"
 import { resolveModelRoute } from "@/lib/ai/model-routing"
+import { ASSESSMENT_TEXT_ANSWER_SURFACE, resolveQuestionModelRoute, type QuestionModelRoute } from "@/lib/assessment-paper/question-model-route"
 import { logQueueEvent } from "@/lib/ai/marking-log"
 import {
   completeAssessmentQuestionMark,
@@ -87,6 +88,34 @@ export async function runAssessmentReadJob(job: AssessmentJob, call?: ModelJsonC
   return outcome
 }
 
+/** Warn when a question's stored marking_model was not used (migration 148). No pupil data. */
+export async function logIgnoredQuestionModel(route: QuestionModelRoute, job: { submissionId: string; questionId: string }) {
+  if (!route.ignored) return
+  await logQueueEvent("warn", `Question ${job.questionId} of submission ${job.submissionId}: its marking model was not used`, {
+    questionId: job.questionId,
+    storedModel: route.ignored.model,
+    reason: route.ignored.reason,
+    model: route.model,
+  })
+}
+
+/**
+ * Warn when a text route was due but not usable: a paper's text-answer route
+ * (migration 149) or a practical type's text-question route (migration 150).
+ * No pupil data.
+ */
+export async function logIgnoredTextAnswerRoute(route: QuestionModelRoute, job: { submissionId: string; questionId: string }) {
+  if (!route.textRouteIgnored) return
+  const which = route.textRouteIgnored.surface === ASSESSMENT_TEXT_ANSWER_SURFACE ? "text-answer" : "text-question"
+  await logQueueEvent("warn", `Question ${job.questionId} of submission ${job.submissionId}: the ${which} route was not used`, {
+    questionId: job.questionId,
+    textRouteSurface: route.textRouteIgnored.surface,
+    textRouteModel: route.textRouteIgnored.model,
+    reason: route.textRouteIgnored.reason,
+    model: route.model,
+  })
+}
+
 /** Mark one question of one script and record it. */
 export async function runAssessmentMarkJob(
   job: AssessmentJob & { questionId: string },
@@ -94,12 +123,17 @@ export async function runAssessmentMarkJob(
 ): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean }> {
   const { activityId, type } = await activityOf(job.submissionId)
   // Allocations, not the criterion's own type, set the marks on a paper, so
-  // the activity-wide route of the activity's own type applies.
-  const route = await resolveModelRoute(type, null)
+  // the question's own model applies, else the text-answer route when this
+  // answer was read as text, else the activity-wide route of the activity's
+  // own type.
+  const route = await resolveQuestionModelRoute(type, job.questionId, job.submissionId)
+  await logIgnoredQuestionModel(route, job)
+  await logIgnoredTextAnswerRoute(route, job)
   await logQueueEvent("info", `Marking assessment paper submission ${job.submissionId}`, {
     questionId: job.questionId,
     provider: route.provider,
     model: route.model,
+    modelSource: route.source,
   })
 
   const marked = await markAssessmentQuestion(

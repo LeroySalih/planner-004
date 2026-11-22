@@ -23,6 +23,7 @@ import {
   type DraftEvidenceSource,
 } from "@/components/lessons/question-evidence-editor"
 import { validateQuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
+import { questionImageReason, questionModelProblem } from "@/lib/assessment-paper/question-model"
 import { practicalTypeConfig, type PracticalAssessmentType } from "@/lib/practical-assessment/types"
 import type { PracticalUploadSlot } from "@/types"
 import { Button } from "@/components/ui/button"
@@ -63,6 +64,7 @@ const MARKING_OPTIONS: Array<{ value: QuestionMarking; label: string }> = [
 ]
 
 const NO_DEPENDENCY = "none"
+const DEFAULT_MODEL = "default"
 
 interface DraftQuestion {
   key: string
@@ -76,6 +78,8 @@ interface DraftQuestion {
   criteria: DraftCriterion[]
   /** PowerPoint assessment only. */
   evidence: DraftEvidenceSource[]
+  /** The model that marks it, or null for the activity default. */
+  markingModel: string | null
 }
 
 // Server actions above ~12 MB are rejected before they reach the action
@@ -100,6 +104,7 @@ function toDraft(setup: AssessmentPaperSetup): DraftQuestion[] {
     dependsOnKey: q.dependsOn ? keyOfLabel.get(q.dependsOn) ?? null : null,
     criteria: q.criteria.map((c) => ({ successCriteriaId: c.successCriteriaId, maxMarks: String(c.maxMarks) })),
     evidence: toDraftSources(q.evidence ?? []),
+    markingModel: q.markingModel,
   }))
 }
 
@@ -276,9 +281,31 @@ export function AssessmentPaperEditor({
     )
     return problemsByLabel(errors)
   }, [powerPoint, questions, practicalType])
+  // Each question's marking model, checked as the store will check it: a
+  // question whose marker is sent pictures needs a high-resolution vision model.
+  const modelChecks = useMemo(
+    () =>
+      questions.map((q) => {
+        const evidence = powerPoint ? fromDraftSources(q.evidence, q.label) : []
+        const imageReason = questionImageReason(setup?.type, evidence)
+        const problem = setup
+          ? questionModelProblem({
+              label: q.label.trim(),
+              type: setup.type,
+              evidence,
+              model: q.markingModel,
+              catalogue: setup.markingModels,
+            })
+          : null
+        return { imageReason, problem }
+      }),
+    [questions, powerPoint, setup],
+  )
   const serverProblems = useMemo(() => problemsByLabel(questionsError ? [questionsError] : []), [questionsError])
   const questionsValid =
-    problems.every((p) => p === null) && (!evidenceCheck || evidenceCheck.size === 0)
+    problems.every((p) => p === null) &&
+    (!evidenceCheck || evidenceCheck.size === 0) &&
+    modelChecks.every((check) => check.problem === null)
   const draftTotal = useMemo(
     () => questions.reduce((sum, q) => sum + (parseWhole(q.maxMarks) ?? 0), 0),
     [questions],
@@ -320,6 +347,7 @@ export function AssessmentPaperEditor({
         evidence: powerPoint
           ? [newDraftSource(practicalTypeConfig(powerPoint.type).sources[0], powerPoint.slots, powerPoint.referenceFiles)]
           : [],
+        markingModel: null,
       },
     ])
   }
@@ -384,6 +412,7 @@ export function AssessmentPaperEditor({
         markScheme: q.markScheme.trim() || null,
         marking: q.marking,
         dependsOn: q.dependsOnKey ? labelOfKey.get(q.dependsOnKey) ?? null : null,
+        markingModel: q.markingModel,
         criteria: q.criteria.map((c) => ({
           successCriteriaId: c.successCriteriaId,
           maxMarks: parseWhole(c.maxMarks) ?? 0,
@@ -863,6 +892,54 @@ export function AssessmentPaperEditor({
                           ) : null}
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Marking model</Label>
+                      <Select
+                        value={question.markingModel ?? DEFAULT_MODEL}
+                        onValueChange={(value) =>
+                          updateQuestion(question.key, { markingModel: value === DEFAULT_MODEL ? null : value })
+                        }
+                        disabled={isSavingQuestions || question.marking === "teacher"}
+                      >
+                        <SelectTrigger aria-label={`Model that marks question ${question.label}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={DEFAULT_MODEL}>
+                            Activity default (
+                            {powerPoint
+                              ? // A practical question that sends no pictures uses the type's text-question route, when it has one.
+                                (modelChecks[index]?.imageReason == null ? setup?.textQuestionMarkingModel?.label : null) ??
+                                setup?.defaultMarkingModel.label ??
+                                "route"
+                              : setup?.textAnswerMarkingModel
+                                ? `text answers: ${setup.textAnswerMarkingModel.label}; others: ${setup.defaultMarkingModel.label}`
+                                : setup?.defaultMarkingModel.label ?? "route"}
+                            )
+                          </SelectItem>
+                          {(setup?.markingModels ?? []).map((option) => {
+                            const noPictures = modelChecks[index]?.imageReason != null && option.visionTier !== "high"
+                            return (
+                              <SelectItem key={option.model} value={option.model} disabled={noPictures}>
+                                {option.label}
+                                {noPictures ? " (cannot judge pictures)" : ""}
+                              </SelectItem>
+                            )
+                          })}
+                          {question.markingModel &&
+                          !(setup?.markingModels ?? []).some((option) => option.model === question.markingModel) ? (
+                            <SelectItem value={question.markingModel}>{question.markingModel} (no longer offered)</SelectItem>
+                          ) : null}
+                        </SelectContent>
+                      </Select>
+                      {modelChecks[index]?.problem ? (
+                        <p className="text-xs text-destructive">{modelChecks[index].problem}</p>
+                      ) : powerPoint && modelChecks[index]?.imageReason ? (
+                        <p className="text-xs text-muted-foreground">
+                          This question {modelChecks[index].imageReason}, so only a high-resolution vision model can mark it.
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   {proposals.has(question.key) ? (

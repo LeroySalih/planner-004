@@ -538,7 +538,7 @@ Reply with exactly one entry per success_criteria_id above, using it exactly as 
 - how_to_improve: what to do next time to earn those mark scheme points. Empty when the entry is full.
 Base both comments on the mark scheme and the evidence only; never mention or quote the success criteria.
 - evidence_note (teacher only, written first): point by point, the conditions and the deciding facts in the evidence, whether each point is earned, and anything you could not see or check.
-- hold_for_teacher: leave it out, unless a marking point needs a value the evidence gives as UNKNOWN (reader could not resolve). Then give its reason (which value, where), and still give one entry per success_criteria_id: the part is held for the teacher and none of these marks is recorded.`
+- hold_for_teacher: leave it out, unless a marking point needs a value the evidence gives as UNKNOWN (reader could not resolve). Then give its reason (which value, where), and still give one entry per success_criteria_id: the part is held for the teacher and none of these marks is recorded. When nothing needs the teacher, leave hold_for_teacher out entirely: never send it with a reason such as "None".`
 }
 
 /**
@@ -678,7 +678,11 @@ export async function markPowerPointQuestion(
     }
   }
 
-  const hold = holdReason(reply.data)
+  let hold = holdReason(reply.data)
+  // "None", "N/A" … in the hold field is a model's way of saying no hold, but
+  // only when it marked every criterion; with no valid criteria it stays a
+  // hold, so a real reason that starts "None of …" still reaches the teacher.
+  if (hold !== null && isNotAHoldReason(hold) && repliesWithValidCriteria(reply.data, criteria)) hold = null
   if (hold !== null) {
     assertUncorruptedModelText(hold, { model, field: `hold_for_teacher (${question.label})`, mode: "note" })
     return {
@@ -711,15 +715,44 @@ export async function markPowerPointQuestion(
 }
 
 /**
- * The reply's hold_for_teacher reason, on one line and capped; null when the
- * reply has none (absent, null, or an empty reason).
+ * A hold reason that says nothing needs holding ("None.", "N/A", "No hold
+ * needed" …). A model sometimes sends hold_for_teacher with such a reason
+ * beside full marks; that is not a hold. Compared case-insensitively with
+ * punctuation removed, on the start of the reason.
  */
+const NOT_A_HOLD = /^(none|n ?a|null|no ?hold|not ?needed|no ?issues?)\b/
+
+/** True when a hold reason is empty or says that nothing needs holding (NOT_A_HOLD). */
+export function isNotAHoldReason(reason: string): boolean {
+  const words = reason
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  return words === "" || NOT_A_HOLD.test(words)
+}
+
+/**
+ * The reply's hold_for_teacher reason, on one line and capped; null when the
+ * reply has none: absent, null, or an empty reason. A reason that says nothing
+ * needs holding (isNotAHoldReason) is returned: the caller drops it only when
+ * the reply also marks every criterion.
+ */
+function repliesWithValidCriteria(data: unknown, criteria: Parameters<typeof validateMarkReply>[1]): boolean {
+  try {
+    validateMarkReply(data, criteria)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function holdReason(data: unknown): string | null {
   const hold = (data as { hold_for_teacher?: unknown } | null)?.hold_for_teacher
   if (!hold || typeof hold !== "object") return null
   const reason = (hold as { reason?: unknown }).reason
   if (typeof reason !== "string") return null
   const text = reason.replace(/\s+/g, " ").trim()
-  if (!text) return null
+  if (text === "") return null
   return text.length > HOLD_REASON_MAX_CHARS ? `${text.slice(0, HOLD_REASON_MAX_CHARS - 1)}…` : text
 }

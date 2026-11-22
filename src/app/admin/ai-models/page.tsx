@@ -43,6 +43,7 @@ export default async function AiModelsPage() {
           description: s.description,
           kind: s.kind,
           providers: s.providers ? [...s.providers] : undefined,
+          unsetLabel: s.unsetLabel,
         }))}
         catalogue={catalogue}
         keyStatus={keyStatus ?? []}

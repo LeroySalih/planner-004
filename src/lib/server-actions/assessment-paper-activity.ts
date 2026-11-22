@@ -44,6 +44,8 @@ const QuestionInputSchema = z.object({
    * assessment paper's editor never sends it).
    */
   evidence: z.array(z.unknown()).max(20).optional(),
+  /** A catalogue model id to mark the question, or null for the activity default. Omitted: unchanged. */
+  markingModel: z.string().trim().min(1).nullable().optional(),
   criteria: z
     .array(z.object({ successCriteriaId: z.string().min(1), maxMarks: z.number().int().min(1) }))
     .min(1),

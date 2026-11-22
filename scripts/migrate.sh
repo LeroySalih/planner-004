@@ -48,6 +48,9 @@ MIGRATIONS=(
   "145-backup-requests.sql|select exists (select 1 from information_schema.tables where table_name = 'backup_requests')"
   "146-database-assessment.sql|select is_question_marked_activity_type('database-assessment')"
   "147-assessment-upload-link-kinds.sql|select exists (select 1 from information_schema.columns where table_name = 'mcp_upload_links' and column_name = 'remark_questions')"
+  "148-question-marking-model.sql|select exists (select 1 from information_schema.columns where table_name = 'activity_questions' and column_name = 'marking_model')"
+  "149-assessment-text-answer-route.sql|select exists (select 1 from ai_model_routes where activity_type = 'surface:assessment-mark-text')"
+  "150-practical-text-question-routes.sql|select exists (select 1 from ai_model_routes where activity_type = 'surface:powerpoint-mark-text')"
 )
 
 YES=false
