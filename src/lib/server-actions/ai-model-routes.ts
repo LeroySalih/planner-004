@@ -5,6 +5,7 @@ import { query } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { AiEffortSchema, AiModelRouteSchema, AiProviderSchema } from '@/types'
 import {
+  batchSwitchProblem,
   findCatalogueEntry,
   findModelSurface,
   invalidateModelRouteCache,
@@ -81,9 +82,13 @@ export async function upsertAiModelRouteAction(
     // row is enforced by a partial index (sc_type IS NULL), which ON CONFLICT
     // cannot name as a conflict target.
     if (payload.scType === null) {
+      // A provider other than anthropic turns the batch switch off: only
+      // Claude can be sent by batch (migration 152). A row moved onto
+      // anthropic gets the default, on.
       await query(
         `UPDATE ai_model_routes
             SET provider = $2, model = $3, effort = $4, active = true,
+                use_batch = CASE WHEN $2 <> 'anthropic' THEN false WHEN provider <> 'anthropic' THEN true ELSE use_batch END,
                 updated_at = now(), updated_by = $5
           WHERE activity_type = $1 AND sc_type IS NULL`,
         [payload.activityType, payload.provider, payload.model, effort, profile.userId],
@@ -111,6 +116,45 @@ export async function upsertAiModelRouteAction(
       )
     }
 
+    invalidateModelRouteCache()
+    return NullResult.parse({ data: null, error: null })
+  } catch (e) {
+    return NullResult.parse({ data: null, error: String(e) })
+  }
+}
+
+const BatchInput = z.object({
+  activityType: z.string().min(1),
+  useBatch: z.boolean(),
+})
+
+/**
+ * Turn the Message Batch switch of a route's activity-wide row on or off
+ * (migration 152). Only for BATCH_ROUTE_KEYS, only on a row that exists and
+ * runs on anthropic; turning it off is always allowed.
+ */
+export async function setAiModelRouteBatchAction(
+  input: z.infer<typeof BatchInput>,
+): Promise<z.infer<typeof NullResult>> {
+  try {
+    const profile = await requireRole('admin')
+    const payload = BatchInput.parse(input)
+    const { rows } = await query<{ provider: string }>(
+      `SELECT provider FROM ai_model_routes WHERE activity_type = $1 AND sc_type IS NULL`,
+      [payload.activityType],
+    )
+    if (payload.useBatch) {
+      if (!rows[0]) {
+        return NullResult.parse({ data: null, error: 'Choose a model for this route before you turn on batch marking.' })
+      }
+      const problem = batchSwitchProblem(payload.activityType, rows[0].provider)
+      if (problem) return NullResult.parse({ data: null, error: problem })
+    }
+    await query(
+      `UPDATE ai_model_routes SET use_batch = $2, updated_at = now(), updated_by = $3
+        WHERE activity_type = $1 AND sc_type IS NULL`,
+      [payload.activityType, payload.useBatch, profile.userId],
+    )
     invalidateModelRouteCache()
     return NullResult.parse({ data: null, error: null })
   } catch (e) {

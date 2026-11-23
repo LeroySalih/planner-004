@@ -1,6 +1,7 @@
 import "server-only"
 
 import { query } from "@/lib/db"
+import type { ModelUsage } from "@/lib/ai/model-usage"
 
 /**
  * Record a model call that has already happened.
@@ -57,6 +58,8 @@ export interface ModelCallRecord {
     raw?: string | null
   } | null
   durationMs?: number | null
+  /** Token counts the provider reported, stored as model_response.usage. */
+  usage?: ModelUsage | null
   /** Set when the call, or a check applied to its reply, failed. */
   error?: string | null
   /** Anything that identifies what was being worked on (lessonId, unitId). */
@@ -85,6 +88,7 @@ export async function recordModelCall(entry: ModelCallRecord): Promise<void> {
               message: truncate(entry.response.message),
               proposalCount: entry.response.proposalCount ?? 0,
               raw: truncate(entry.response.raw),
+              usage: entry.usage ?? null,
             })
           : null,
         entry.durationMs ?? null,

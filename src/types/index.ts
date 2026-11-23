@@ -1940,6 +1940,8 @@ export const AiModelRouteSchema = z.object({
   model: z.string(),
   effort: AiEffortSchema.nullable(),
   active: z.boolean(),
+  /** Send by Message Batch (migration 152); has effect only on BATCH_ROUTE_KEYS rows with provider anthropic. */
+  use_batch: z.boolean().default(true),
   updated_at: z.string().nullable(),
   updated_by: z.string().nullable(),
 });

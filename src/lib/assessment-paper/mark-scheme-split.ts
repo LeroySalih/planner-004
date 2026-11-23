@@ -164,6 +164,7 @@ export async function proposeMarkSchemeSplit(
       attachments,
       response: { proposalCount: rows.filter((row) => row.markScheme).length, raw: reply.raw },
       durationMs: reply.durationMs,
+      usage: reply.usage ?? null,
       context: { activityId },
     })
 
@@ -192,6 +193,7 @@ export async function proposeMarkSchemeSplit(
       attachments,
       response: reply ? { raw: reply.raw } : null,
       durationMs: reply?.durationMs ?? null,
+      usage: reply?.usage ?? null,
       error: error instanceof Error ? error.message : String(error),
       context: { activityId },
     })

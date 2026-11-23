@@ -482,6 +482,94 @@ script is **not read again** and the questions are re-marked from the stored
 transcriptions (`remarkAssessmentQuestions`). Code `src/lib/assessment-paper/remark-activity.ts`;
 tests `tests/assessment-paper/remark-activity.check.ts`.
 
+**A mark request is never paid for twice** (migration 151,
+`src/lib/assessment-paper/mark-reuse.ts`). Both markers (`markAssessmentQuestion`,
+`markPowerPointQuestion`) fingerprint the request just before the call: sha256
+of provider, model, effort, system text, response schema, `maxTokens`, every
+part in order (text verbatim, an attachment by mime type + sha256 of its
+bytes), the criteria ids and allocations, and `MARK_REUSE_VERSION` (bump it
+when reply handling changes). `submission_question_mark_requests` keeps one
+row per submission and question, the latest answered request: its hash and
+the validated result (rows, the practical marker's evidence note, a hold).
+`completeAssessmentQuestionMark` writes it in the transaction that applies the
+result, so a superseded job or a failed apply stores nothing. A mark job whose
+hash matches turns the stored result back into a reply and runs it through the
+same checks and apply as a fresh one (teacher rows kept, `ai_awarded`, holds),
+with no model call; the job row says `reused: true`. Clears and re-marks
+(`clearMarkedQuestionWork`, `clearForReread`, *Undo hand in*, a file change)
+leave the row alone: that is the point. Only `remark_assessment_activity`
+`force: true` deletes it. A new attempt is a new submission, so nothing carries
+across attempts. A paper read again in full gets a fresh call when the reader's
+transcription comes back worded differently. Tests:
+`tests/assessment-paper/mark-reuse.check.ts`.
+
+**Practical marking uses the Anthropic prompt cache.** A `ModelPart` text part
+may carry `cache: true` and a `ModelRequest` `cacheSystem`; the Anthropic
+transport turns them into `cache_control: {type: "ephemeral"}` (5-minute TTL)
+and refuses more than 4 per request (`buildClaudeMessageParams`, which builds
+the request body without a network call, for a future Message Batches path
+too); Gemini drops them. The flags are not in the mark-reuse fingerprint
+(text and order only). The practical marker (`markPowerPointQuestion`) sends
+the system text (a breakpoint, shared by every question of the type), then
+the pupil's report sections **before** anything question-specific
+(`reportParts`): per report a heading, then one part per group, a
+presentation's in the order slides, layouts, masters, the rest, a database's
+one per section; a breakpoint ends each group when there are at most 3, else
+the first two and the last. The question's evidence list then says which
+parts of the report above are its evidence (`… slides:3: given above`). A
+pupil's questions with the same sections send byte-identical parts, and sets
+that start alike share their first groups. The worker staggers one hand-in's
+practical mark jobs in a batch (`src/lib/ai/cache-warm-order.ts`): each starts
+once the previous one's response has begun (the Anthropic transport streams
+the reply for such a caller and signals at the first event,
+`model-call-started.ts`; Gemini signals at once), or it finished, or 30 s
+passed, because a cache entry is readable only from then. A prefix shorter
+than the model's minimum (Sonnet 5 1024 tokens, Opus 5 512, Haiku 4.5 4096) is
+simply not cached. The reorder changed every practical request's text, so each
+question's first mark after this change is a fresh call, not a reuse. The
+paper marker is unchanged. `model_request.cacheBreakpoints` and the report
+sections in `textSections` (`report:<kind>:<slot>:<section>`) are on the job
+row. Tests: `tests/powerpoint-assessment/prompt-cache.check.ts`.
+
+**Message Batches for question marking** (migration 152,
+`src/lib/ai/message-batches.ts`). A route row's *Batch* switch at
+`/admin/ai-models` (`ai_model_routes.use_batch`, on by default, "half price,
+results can take up to 24 hours") sends a job by the Anthropic Message
+Batches API instead of a direct call. It has effect only on `BATCH_ROUTE_KEYS`
+(`model-routing.ts`: the three question-marked types and
+`surface:assessment-read` / `-mark-text` surfaces) with provider `anthropic`;
+`setAiModelRouteBatchAction` refuses anything else, and a row moved off
+anthropic turns it off. So only a question's `ai_mark` and a paper's `ai_read`
+go by batch, never STQ, upload-*, worksheets, chat, OCR or the mark-scheme
+split. The route that chose the model decides (question model → text route →
+activity route; a question's own `marking_model` takes the activity route's
+switch). Each marker is split into prepare (`markAssessmentQuestion`,
+`markPowerPointQuestion`, `readAssessmentScript`, with a `park` hook) and
+handle reply (`finishAssessmentQuestionMark`, `finishPowerPointQuestionMark`,
+`finishAssessmentRead`), so a batch reply gets the same checks, hold rule,
+mark-reuse row and apply as a direct one. Mark reuse comes first: a reused
+mark is never parked. A parked job keeps `status = 'processing'` with a
+`model_batch_items` row (the full `buildClaudeMessageParams` body, cache flags
+kept, and the handler's JSON context): the claim takes only `pending`,
+`recoverStuckItems` skips a job with an item, and every path that deletes or
+closes open jobs (re-mark, *Undo hand in*, a file change, a hold) works
+unchanged; a deleted job deletes its item (cascade), and a result whose item
+has gone or whose job is no longer `processing` is dropped. `runBatchTick`
+(`marking-queue.ts`) releases overdue items (unsent 30 min, sent 25 h), submits
+every parked item (custom_id = job id; ≤ 100,000 requests / 256 MB per batch)
+and polls each open batch at most once per 55 s; ended results run through
+`processSingleItem` with `options.batch` (`succeeded`), or go back to the
+direct path (`errored` / `expired` / `canceled`: `pending` now, attempts
+unchanged). A job that left a batch carries `payload.directOnly`, so its
+retries are direct calls. The job row records `model_request.batch: {id,
+submittedAt}` and `model_response.usage`. The tick is driven by
+`startBatchDriver` (`src/lib/ai/batch-driver.ts`), started from
+`src/instrumentation.ts` in each server process: once a minute while batch
+work is open, then `triggerQueueProcessor` when results came back. No cron.
+The stagger does not apply to batch items. MCP `get_assessment_activity`
+reports `progress.batch: {jobs, status: to_send | sent}`. Tests:
+`tests/assessment-paper/batch-marking.check.ts`.
+
 `submission_question_criterion_marks.ai_awarded` (migration 141) keeps the
 marker's own mark: every AI write sets it, a teacher's write (mark, comment,
 confirm, transcription) never touches it, and the marker never writes over a
@@ -907,7 +995,13 @@ limit 20;
 
 Every `ai_mark` job records its model call on the queue row: `model_request`
 (prompt, system text, per-image metadata), `model_response` (parsed marks,
-feedback, raw reply truncated to 4 000 chars) and `duration_ms`.
+feedback, raw reply truncated to 4 000 chars, and `usage`) and `duration_ms`.
+`usage` (`src/lib/ai/model-usage.ts`) is the provider's own token count:
+`inputTokens` (full rate), `outputTokens` (thinking included),
+`cacheCreationInputTokens`, `cacheReadInputTokens`; Gemini's cached tokens are
+taken out of `inputTokens`, and it has no write charge. `ai_read` rows of a
+paper and chat log rows (`recordModelCall`) carry it too; null on a reused
+mark. `callModel` / `callModelJson` return it.
 
 **Base64 image data is deliberately not stored** — a worksheet request carries
 several MB of it. Only `{fileName, mimeType, bytes}` per image is kept.
@@ -916,22 +1010,38 @@ Completed `ai_mark` rows are no longer deleted on completion; they age out on
 the generic 7-day sweep (`pruneDoneJobs`) along with every other job type.
 
 ```sql
--- slowest marking calls in the last day
+-- slowest marking calls in the last day, with their tokens
 select duration_ms,
        model_request->>'model'        as model,
        model_request->>'scType'       as sc_type,
        (model_response->>'marksAwarded')::int as awarded,
+       (model_response->'usage'->>'inputTokens')::int              as input,
+       (model_response->'usage'->>'cacheReadInputTokens')::int     as cache_read,
+       (model_response->'usage'->>'cacheCreationInputTokens')::int as cache_write,
+       (model_response->'usage'->>'outputTokens')::int             as output,
        payload->>'submissionId'       as submission
 from external_jobs
 where job_type = 'ai_mark' and model_request is not null
   and updated_at > now() - interval '1 day'
 order by duration_ms desc
 limit 20;
+
+-- token totals per model in the last day (multiply by the model's rates:
+-- cache reads 0.1x input, 5-minute cache writes 1.25x)
+select model_request->>'model' as model, count(*) as calls,
+       sum((model_response->'usage'->>'inputTokens')::bigint)              as input,
+       sum((model_response->'usage'->>'cacheReadInputTokens')::bigint)     as cache_read,
+       sum((model_response->'usage'->>'cacheCreationInputTokens')::bigint) as cache_write,
+       sum((model_response->'usage'->>'outputTokens')::bigint)             as output
+from external_jobs
+where job_type in ('ai_mark', 'ai_read', 'chat') and model_response ? 'usage'
+  and updated_at > now() - interval '1 day'
+group by 1 order by 1;
 ```
 
-Gather is concurrency-sensitive: `processNextQueueItem` runs a batch through
-`Promise.allSettled`, so sibling criterion results for one submission arrive
-together. `recordCriterionMark` takes `select … for update` on the submission
+Gather is concurrency-sensitive: `processNextQueueItem` runs a batch
+concurrently (`runCacheStaggered`, like `Promise.allSettled`), so sibling
+criterion results for one submission arrive together. `recordCriterionMark` takes `select … for update` on the submission
 row before deciding whether the set is complete.
 
 ## Manual backup to the dev server

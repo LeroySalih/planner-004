@@ -1,6 +1,8 @@
 import "server-only"
 
-import { callClaudeRaw, type ChatPart } from "@/lib/ai/anthropic-client"
+import { callClaudeRaw, type ChatPart, type ClaudeRequestParams } from "@/lib/ai/anthropic-client"
+import { modelResponseStarted } from "@/lib/ai/model-call-started"
+import { geminiUsage, type ModelUsage } from "@/lib/ai/model-usage"
 import type { AiProvider } from "@/types"
 
 // Shared transport for model calls: marking, OCR and chat all retry and parse
@@ -20,6 +22,13 @@ const MAX_ATTEMPTS = 4
 export interface ModelPart {
   text?: string
   inline_data?: { mime_type: string; data: string }
+  /**
+   * End a prompt-cache breakpoint after this text part (Anthropic only; see
+   * anthropic-client.ts, at most MAX_CACHE_BREAKPOINTS per request with
+   * cacheSystem). Gemini ignores it. Never part of a request's fingerprint
+   * (mark-reuse.ts hashes text and order only).
+   */
+  cache?: true
 }
 
 export interface ModelRequest {
@@ -27,6 +36,8 @@ export interface ModelRequest {
   provider?: AiProvider
   model?: string
   systemText?: string
+  /** Put a prompt-cache breakpoint at the end of the system text (Anthropic only). */
+  cacheSystem?: boolean
   parts: ModelPart[]
   /** JSON Schema constraining the reply. Omit for free text. */
   responseSchema?: Record<string, unknown>
@@ -60,6 +71,34 @@ export interface ModelResult {
   durationMs: number
   /** How many HTTP attempts were made (1 when it succeeded first time). */
   attempts: number
+  /** Token counts the provider reported; null when it reported none. */
+  usage: ModelUsage | null
+}
+
+/** Gemini parts carry inline_data; Claude wants typed image/document blocks. */
+function toChatParts(parts: ModelPart[]): ChatPart[] {
+  return parts.flatMap((part): ChatPart[] => {
+    if (part.text !== undefined) return [{ kind: "text", text: part.text, ...(part.cache ? { cache: true } : {}) }]
+    if (!part.inline_data) return []
+    const { mime_type, data } = part.inline_data
+    return mime_type === "application/pdf"
+      ? [{ kind: "document", mimeType: mime_type, base64: data }]
+      : [{ kind: "image", mimeType: mime_type, base64: data }]
+  })
+}
+
+/** The Anthropic transport's request for a ModelRequest (buildClaudeMessageParams turns it into the API body). */
+export function claudeRequestOf(request: ModelRequest): ClaudeRequestParams {
+  return {
+    model: request.model,
+    system: request.systemText,
+    cacheSystem: request.cacheSystem,
+    userParts: toChatParts(request.parts),
+    schema: request.responseSchema,
+    // Marking feedback is a couple of sentences plus an integer; the chat
+    // default would be an order of magnitude more headroom than needed.
+    maxTokens: request.maxTokens ?? 2000,
+  }
 }
 
 /**
@@ -70,40 +109,24 @@ export interface ModelResult {
  * is the whole point of calling directly rather than through a fire-and-forget
  * webhook.
  */
-/** Gemini parts carry inline_data; Claude wants typed image/document blocks. */
-function toChatParts(parts: ModelPart[]): ChatPart[] {
-  return parts.flatMap((part): ChatPart[] => {
-    if (part.text !== undefined) return [{ kind: "text", text: part.text }]
-    if (!part.inline_data) return []
-    const { mime_type, data } = part.inline_data
-    return mime_type === "application/pdf"
-      ? [{ kind: "document", mimeType: mime_type, base64: data }]
-      : [{ kind: "image", mimeType: mime_type, base64: data }]
-  })
-}
-
 export async function callModel(request: ModelRequest): Promise<ModelResult> {
   if (request.provider === "anthropic") {
-    const result = await callClaudeRaw({
-      model: request.model,
-      system: request.systemText,
-      userParts: toChatParts(request.parts),
-      schema: request.responseSchema,
-      // Marking feedback is a couple of sentences plus an integer; the chat
-      // default would be an order of magnitude more headroom than needed.
-      maxTokens: request.maxTokens ?? 2000,
-      timeoutMs: request.timeoutMs,
-    })
+    const result = await callClaudeRaw({ ...claudeRequestOf(request), timeoutMs: request.timeoutMs })
     // The SDK retries internally and does not report the count, so this is the
     // one attempt we observed rather than the number actually made.
-    return { text: result.raw, durationMs: result.durationMs, attempts: 1 }
+    return { text: result.raw, durationMs: result.durationMs, attempts: 1, usage: result.usage }
   }
+
+  // Nothing to wait for: Gemini has no prompt cache to warm, so a caller
+  // staggering its jobs (cache-warm-order.ts) can start the next one now.
+  modelResponseStarted()
 
   const model = request.model ?? defaultMarkingModel()
   const startedAt = performance.now()
 
   const payload: Record<string, unknown> = {
-    contents: [{ role: "user", parts: request.parts }],
+    // The cache flag is Anthropic's; Gemini rejects fields it does not know.
+    contents: [{ role: "user", parts: request.parts.map((part) => (part.cache ? { text: part.text } : part)) }],
     generationConfig: {
       temperature: request.temperature ?? 0.2,
       ...(request.responseSchema
@@ -147,30 +170,39 @@ export async function callModel(request: ModelRequest): Promise<ModelResult> {
     throw new Error(`${model} returned a non-JSON response.`)
   }
 
-  const parts = (data as {
+  const reply = data as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-  })?.candidates?.[0]?.content?.parts ?? []
+    usageMetadata?: unknown
+  } | null
+  const parts = reply?.candidates?.[0]?.content?.parts ?? []
 
   return {
     text: parts.map((part) => part.text).filter(Boolean).join(""),
     durationMs: Math.round(performance.now() - startedAt),
     attempts: attemptsUsed,
+    usage: geminiUsage(reply?.usageMetadata),
   }
 }
 
 /** Call the model with a response schema and parse the JSON reply. */
 export async function callModelJson<T>(
   request: ModelRequest,
-): Promise<{ data: T; raw: string; durationMs: number; attempts: number }> {
+): Promise<{ data: T; raw: string; durationMs: number; attempts: number; usage: ModelUsage | null }> {
   const result = await callModel(request)
+  return {
+    data: parseModelJson<T>(result.text, request.model),
+    raw: result.text,
+    durationMs: result.durationMs,
+    attempts: result.attempts,
+    usage: result.usage,
+  }
+}
+
+/** A JSON reply, direct or from a Message Batch result; throws when it does not parse. */
+export function parseModelJson<T>(text: string, model?: string): T {
   try {
-    return {
-      data: JSON.parse(result.text || "{}") as T,
-      raw: result.text,
-      durationMs: result.durationMs,
-      attempts: result.attempts,
-    }
+    return JSON.parse(text || "{}") as T
   } catch {
-    throw new Error(`${request.model ?? "model"} returned unparseable JSON: ${result.text.slice(0, 300)}`)
+    throw new Error(`${model ?? "model"} returned unparseable JSON: ${text.slice(0, 300)}`)
   }
 }

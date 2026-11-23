@@ -1,8 +1,9 @@
 import "server-only"
 
 import { query } from "@/lib/db"
-import { callModelJson, defaultMarkingModel, type ModelPart } from "@/lib/ai/model-client"
+import { callModelJson, defaultMarkingModel, type ModelPart, type ModelRequest } from "@/lib/ai/model-client"
 import { assertUncorruptedModelText } from "@/lib/ai/model-output-guard"
+import type { ModelUsage } from "@/lib/ai/model-usage"
 import {
   readAssessmentQuestions,
   readSubmissionAnswers,
@@ -12,7 +13,13 @@ import {
 } from "@/lib/assessment-paper/store"
 import { readMarkableScriptId, readMarkablePages, type MarkablePage } from "@/lib/assessment-paper/files"
 import type { ModelJsonCall } from "@/lib/assessment-paper/reading"
-import type { AiProvider } from "@/types"
+import {
+  markRequestHash,
+  readReusableMark,
+  storedResultAsReply,
+  type MarkRequestRecord,
+} from "@/lib/assessment-paper/mark-reuse"
+import type { AiEffort, AiProvider } from "@/types"
 
 // One marking call of an assessment paper: one question of one pupil's
 // script, every criterion the question tests at once, after the read.
@@ -59,11 +66,20 @@ export interface AssessmentMarkingCallRecord {
     pages: number[]
     dependsOn: { label: string; pages: number[] } | null
     criteria: Array<{ successCriteriaId: string; allocation: number }>
+    /** The request's fingerprint (mark-reuse.ts). */
+    requestHash: string
+    /** True when a stored answer to the same request was applied and the model was not called. */
+    reused?: true
+    /** The Message Batch it went by (message-batches.ts); absent on a direct call. */
+    batch?: { id: string; submittedAt: string }
   }
   response: {
     marksAwarded: number
     criteria: MarkReplyRow[]
     raw: string
+    reused?: true
+    /** Token counts the provider reported (model-usage.ts); null when reused or not reported. */
+    usage: ModelUsage | null
   }
   durationMs: number
   attempts: number
@@ -197,11 +213,52 @@ export function pagesForAnswer(
   return allPages.filter((page) => wanted.has(page.pageNumber))
 }
 
+/** What the reply handler needs of a prepared mark request: JSON, so it can wait in a Message Batch item. */
+export interface AssessmentMarkContext {
+  provider: AiProvider
+  model: string
+  prompt: string
+  images: AssessmentMarkingCallRecord["request"]["images"]
+  question: { questionId: string; label: string; maxMarks: number }
+  scriptId: string
+  pages: number[]
+  dependsOn: { label: string; pages: number[] } | null
+  criteria: Array<{ successCriteriaId: string; allocation: number }>
+  requestHash: string
+}
+
+/** A prepared mark request, about to be sent (directly or by batch). */
+export interface PreparedMarkRequest<C> {
+  request: ModelRequest
+  requestHash: string
+  context: C
+}
+
+/**
+ * Called with the prepared request when no stored mark is reused, just
+ * before the call: true when it parked the request for a Message Batch
+ * (message-batches.ts), so no call is made now.
+ */
+export type ParkHook<C> = (prepared: PreparedMarkRequest<C>) => Promise<boolean>
+
+export type AssessmentMarkResult = {
+  rows: QuestionCriterionMarkInput[]
+  call: AssessmentMarkingCallRecord | null
+  skipped: string | null
+  /** The request and its validated result, to store once applied (mark-reuse.ts); null when not marked. */
+  markRequest?: MarkRequestRecord | null
+  /** The request waits in a Message Batch: nothing to apply yet. */
+  parked?: true
+}
+
 /**
  * Mark one question of one pupil's script. Returns the rows to record (one per
  * criterion the question tests) and the call for the job row; or no rows and
  * no call, with the reason, when the question is no longer to be sent (made
- * teacher-only, or its mark scheme removed, since the job was queued).
+ * teacher-only, or its mark scheme removed, since the job was queued). With
+ * `park`, a request that is not answered by a stored mark may be parked for a
+ * Message Batch instead of called; its reply later goes through
+ * finishAssessmentQuestionMark, as a direct reply does here.
  */
 export async function markAssessmentQuestion(
   input: {
@@ -210,9 +267,11 @@ export async function markAssessmentQuestion(
     questionId: string
     provider: AiProvider
     model: string
+    effort?: AiEffort | null
   },
   call: ModelJsonCall = callModelJson,
-): Promise<{ rows: QuestionCriterionMarkInput[]; call: AssessmentMarkingCallRecord | null; skipped: string | null }> {
+  options: { park?: ParkHook<AssessmentMarkContext> } = {},
+): Promise<AssessmentMarkResult> {
   const questions = await readAssessmentQuestions(input.activityId)
   const question = questions.find((q) => q.questionId === input.questionId)
   if (!question) throw new PermanentAssessmentMarkingError(`Question ${input.questionId} is not on this assessment paper.`)
@@ -283,7 +342,7 @@ export async function markAssessmentQuestion(
   for (const page of earlierPages) attach(`EARLIER ANSWER (question ${earlierQuestion!.label}), PAGE ${page.pageNumber}:`, page)
 
   const model = input.model || defaultMarkingModel()
-  const reply = await call({
+  const request = {
     provider: input.provider,
     model,
     systemText: MARK_SYSTEM,
@@ -291,9 +350,49 @@ export async function markAssessmentQuestion(
     responseSchema: MARK_RESPONSE_SCHEMA,
     timeoutMs: 180_000,
     maxTokens: 16000,
-  })
+  }
+  const allocations = criteria.map((c) => ({ successCriteriaId: c.successCriteriaId, allocation: c.allocation }))
+  const requestHash = markRequestHash({ ...request, effort: input.effort ?? null, criteria: allocations })
+  const context: AssessmentMarkContext = {
+    provider: input.provider,
+    model,
+    prompt,
+    images,
+    question: { questionId: question.questionId, label: question.label, maxMarks: question.maxMarks },
+    scriptId,
+    pages: answerPages.map((page) => page.pageNumber),
+    dependsOn: earlierQuestion
+      ? { label: earlierQuestion.label, pages: earlierPages.map((page) => page.pageNumber) }
+      : null,
+    criteria: allocations,
+    requestHash,
+  }
+  // The same request already answered for this submission and question: its
+  // stored answer goes through the same checks as a fresh reply, no call.
+  const stored = await readReusableMark(input.submissionId, question.questionId, requestHash)
+  if (stored) {
+    return finishAssessmentQuestionMark(context, { data: storedResultAsReply(stored), raw: "", durationMs: 0, attempts: 0, usage: null }, { reused: true })
+  }
+  if (options.park && (await options.park({ request, requestHash, context }))) {
+    return { rows: [], call: null, skipped: null, parked: true }
+  }
+  return finishAssessmentQuestionMark(context, await call(request))
+}
 
-  const replyRows = validateMarkReply(reply.data, criteria)
+/**
+ * The reply to a prepared mark request, direct, reused or from a Message
+ * Batch: checked (every criterion once, within its allocation; the output
+ * guard), and turned into the rows to apply, the call record and the
+ * mark-reuse record. Throws on a bad reply, so the job retries.
+ */
+export function finishAssessmentQuestionMark(
+  context: AssessmentMarkContext,
+  reply: Awaited<ReturnType<ModelJsonCall>>,
+  options: { reused?: boolean } = {},
+): AssessmentMarkResult {
+  const { model, question } = context
+  const reused = options.reused === true
+  const replyRows = validateMarkReply(reply.data, context.criteria)
   for (const row of replyRows) {
     assertUncorruptedModelText(row.whyNotAwarded, { model, field: `why_not_awarded (${question.label}, ${row.successCriteriaId})` })
     assertUncorruptedModelText(row.howToImprove, { model, field: `how_to_improve (${question.label}, ${row.successCriteriaId})` })
@@ -308,28 +407,36 @@ export async function markAssessmentQuestion(
       howToImprove: row.howToImprove || null,
     })),
     skipped: null,
+    markRequest: {
+      questionId: question.questionId,
+      requestHash: context.requestHash,
+      model,
+      result: { rows: replyRows, evidenceNote: null, hold: null },
+    },
     call: {
       request: {
-        provider: input.provider,
+        provider: context.provider,
         model,
         system: MARK_SYSTEM,
-        prompt,
-        images,
+        prompt: context.prompt,
+        images: context.images,
         maxMarks: question.maxMarks,
         questionId: question.questionId,
         label: question.label,
         scType: null,
-        scriptId,
-        pages: answerPages.map((page) => page.pageNumber),
-        dependsOn: earlierQuestion
-          ? { label: earlierQuestion.label, pages: earlierPages.map((page) => page.pageNumber) }
-          : null,
-        criteria: criteria.map((c) => ({ successCriteriaId: c.successCriteriaId, allocation: c.allocation })),
+        scriptId: context.scriptId,
+        pages: context.pages,
+        dependsOn: context.dependsOn,
+        criteria: context.criteria,
+        requestHash: context.requestHash,
+        ...(reused ? { reused: true as const } : {}),
       },
       response: {
         marksAwarded: replyRows.reduce((sum, row) => sum + row.awarded, 0),
         criteria: replyRows,
         raw: reply.raw.slice(0, RAW_RESPONSE_LIMIT),
+        ...(reused ? { reused: true as const } : {}),
+        usage: reply.usage ?? null,
       },
       durationMs: reply.durationMs,
       attempts: reply.attempts,

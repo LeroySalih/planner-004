@@ -1,7 +1,8 @@
 import "server-only"
 
-import { callModelJson, defaultMarkingModel, type ModelPart } from "@/lib/ai/model-client"
+import { callModelJson, defaultMarkingModel, type ModelPart, type ModelRequest } from "@/lib/ai/model-client"
 import { assertUncorruptedModelText } from "@/lib/ai/model-output-guard"
+import type { ModelUsage } from "@/lib/ai/model-usage"
 import {
   readAssessmentQuestions,
   type AnswerKind,
@@ -48,6 +49,8 @@ export type ModelJsonCall = (request: Parameters<typeof callModelJson>[0]) => Pr
   raw: string
   durationMs: number
   attempts: number
+  /** Token counts (model-usage.ts); a stub may leave it out. */
+  usage?: ModelUsage | null
 }>
 
 export interface AssessmentReadCallRecord {
@@ -61,10 +64,13 @@ export interface AssessmentReadCallRecord {
     scriptId: string
     pages: number[]
     questions: Array<{ label: string; maxMarks: number }>
+    /** The Message Batch it went by (message-batches.ts); absent on a direct call. */
+    batch?: { id: string; submittedAt: string }
   }
   response: {
     answers: ReadReplyAnswer[]
     raw: string
+    usage: ModelUsage | null
   }
   durationMs: number
   attempts: number
@@ -192,9 +198,24 @@ export function buildReadParts(
   return { parts, images }
 }
 
+/** What the reply handler needs of a prepared read request: JSON, so it can wait in a Message Batch item. */
+export interface AssessmentReadContext {
+  provider: AiProvider
+  model: string
+  prompt: string
+  images: AssessmentReadCallRecord["request"]["images"]
+  scriptId: string
+  pages: number[]
+  questions: Array<{ questionId: string; label: string; maxMarks: number }>
+}
+
+export type AssessmentReadResult = { answers: SubmissionQuestionAnswerInput[]; call: AssessmentReadCallRecord }
+
 /**
  * Read one pupil's script: one model call over the markable pages. Returns
- * the answers to store, by question id, and the call for the job row.
+ * the answers to store, by question id, and the call for the job row. With
+ * `park`, the request may be parked for a Message Batch instead (null is
+ * returned); its reply later goes through finishAssessmentRead.
  */
 export async function readAssessmentScript(
   input: {
@@ -204,7 +225,8 @@ export async function readAssessmentScript(
     model: string
   },
   call: ModelJsonCall = callModelJson,
-): Promise<{ answers: SubmissionQuestionAnswerInput[]; call: AssessmentReadCallRecord }> {
+  options: { park?: (prepared: { request: ModelRequest; context: AssessmentReadContext }) => Promise<boolean> } = {},
+): Promise<AssessmentReadResult | null> {
   const questions = await readAssessmentQuestions(input.activityId)
   if (questions.length === 0) {
     throw new PermanentAssessmentReadError("The paper has no questions; add them in the lesson editor, then send it again.")
@@ -223,7 +245,7 @@ export async function readAssessmentScript(
   const { parts, images } = buildReadParts(prompt, pages)
   const model = input.model || defaultMarkingModel()
 
-  const reply = await call({
+  const request: ModelRequest = {
     provider: input.provider,
     model,
     systemText: READ_SYSTEM,
@@ -231,17 +253,40 @@ export async function readAssessmentScript(
     responseSchema: READ_RESPONSE_SCHEMA,
     timeoutMs: 300_000,
     maxTokens: 16000,
-  })
+  }
+  const context: AssessmentReadContext = {
+    provider: input.provider,
+    model,
+    prompt,
+    images,
+    scriptId,
+    pages: pageNumbers,
+    questions: questions.map((q) => ({ questionId: q.questionId, label: q.label, maxMarks: q.maxMarks })),
+  }
+  if (options.park && (await options.park({ request, context }))) return null
+  return finishAssessmentRead(context, await call(request))
+}
 
-  const labels = questions.map((q) => q.label)
-  const answers = validateReadReply(reply.data, labels, pageNumbers)
+/**
+ * The reply to a prepared read request, direct or from a Message Batch:
+ * checked (every label once, pages from those sent; the output guard) and
+ * turned into the answers to store and the call record. Throws on a bad
+ * reply, so the job retries.
+ */
+export function finishAssessmentRead(
+  context: AssessmentReadContext,
+  reply: Awaited<ReturnType<ModelJsonCall>>,
+): AssessmentReadResult {
+  const { model } = context
+  const labels = context.questions.map((q) => q.label)
+  const answers = validateReadReply(reply.data, labels, context.pages)
   for (const answer of answers) {
     // Transcriptions are multi-line by nature, so only the unambiguous
     // corruption signatures apply.
     assertUncorruptedModelText(answer.transcription, { model, field: `transcription (${answer.label})`, mode: "lenient" })
   }
 
-  const questionIdOf = new Map(questions.map((q) => [q.label, q.questionId]))
+  const questionIdOf = new Map(context.questions.map((q) => [q.label, q.questionId]))
   return {
     answers: answers.map((answer) => ({
       questionId: questionIdOf.get(answer.label)!,
@@ -252,16 +297,16 @@ export async function readAssessmentScript(
     })),
     call: {
       request: {
-        provider: input.provider,
+        provider: context.provider,
         model,
         system: READ_SYSTEM,
-        prompt,
-        images,
-        scriptId,
-        pages: pageNumbers,
-        questions: questions.map((q) => ({ label: q.label, maxMarks: q.maxMarks })),
+        prompt: context.prompt,
+        images: context.images,
+        scriptId: context.scriptId,
+        pages: context.pages,
+        questions: context.questions.map((q) => ({ label: q.label, maxMarks: q.maxMarks })),
       },
-      response: { answers, raw: reply.raw.slice(0, RAW_RESPONSE_LIMIT) },
+      response: { answers, raw: reply.raw.slice(0, RAW_RESPONSE_LIMIT), usage: reply.usage ?? null },
       durationMs: reply.durationMs,
       attempts: reply.attempts,
     },

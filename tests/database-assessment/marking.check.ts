@@ -13,6 +13,7 @@ import { runPowerPointMarkJob, runPowerPointReadJob } from '@/lib/powerpoint-ass
 import { MARK_TEXT, POWERPOINT_MARK_SYSTEM, buildPowerPointMarkPrompt } from '@/lib/powerpoint-assessment/marking'
 import { defaultDatabaseAssessmentBody } from '@/lib/practical-assessment/types'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
+import { restoreBatchSwitch, turnBatchSwitchOff } from '../ai/batch-switch'
 
 // The mark of a database assessment (the ai_mark jobs), with the model call
 // stubbed (never a real one): the Palm Grove Vets model answer and its
@@ -143,7 +144,7 @@ type Captured = { request: ModelRequest; label: string }
 /** A fake model: captures the request and replies with each criterion's full allocation. */
 function fakeModel(captured: Captured[]) {
   const call: ModelJsonCall = async (request) => {
-    const prompt = request.parts[0]?.text ?? ''
+    const prompt = request.parts.find((part) => part.text?.startsWith('PART '))?.text ?? ''
     const label = /^PART (\S+) /.exec(prompt)?.[1] ?? '?'
     captured.push({ request, label })
     const criteria = [...prompt.matchAll(/success_criteria_id "([^"]+)" \(topic: [^)]*\): holds 0 to (\d+)\./g)].map((m) => ({
@@ -161,7 +162,7 @@ function fakeModel(captured: Captured[]) {
 const textOf = (request: ModelRequest) => request.parts.filter((part) => part.text !== undefined).map((part) => part.text).join('\n')
 /** The evidence part of the prompt (between its heading and the marking instructions). */
 const evidenceText = (request: ModelRequest) => {
-  const prompt = request.parts[0]?.text ?? ''
+  const prompt = request.parts.find((part) => part.text?.startsWith('PART '))?.text ?? ''
   const start = prompt.indexOf('\n', prompt.indexOf("THE PUPIL'S EVIDENCE FOR THIS PART"))
   return prompt.slice(start, prompt.indexOf('First write the evidence_note'))
 }
@@ -206,6 +207,7 @@ async function main() {
   )
   const [A, B] = scs.map((s) => s.success_criteria_id)
 
+  await turnBatchSwitchOff()
   await setUp()
   try {
     const lessons = createLocalStorageClient(LESSONS_BUCKET)
@@ -286,23 +288,25 @@ async function main() {
     check('one model call per marked question', captured.map((c) => c.label).sort().join(',') === '6,B1,CH,D3,DN', captured.map((c) => c.label).join(','))
     check('every call has the database system prompt', captured.every((c) => c.request.systemText === DATABASE_MARK_SYSTEM))
     check('…and names database evidence in the comment instructions', captured.every((c) =>
-      (c.request.parts[0]?.text ?? '').includes('naming the evidence (EVIDENCE heading, table, query, form or report, or file).')
-      && !(c.request.parts[0]?.text ?? '').includes('slide number')))
+      (c.request.parts.find((part) => part.text?.startsWith('PART '))?.text ?? '').includes('naming the evidence (EVIDENCE heading, table, query, form or report, or file).')
+      && !(c.request.parts.find((part) => part.text?.startsWith('PART '))?.text ?? '').includes('slide number')))
 
     const d3 = req('D3')!
     const d3Text = textOf(d3)
     check('query part: the query block, labelled with the slot and slot_key.accdb',
-      d3Text.includes('DATABASE REPORT, Database (database.accdb), query:MICROCHIP REMINDER:\nQUERY "MICROCHIP REMINDER" (select query)'), evidenceText(d3).slice(0, 400))
+      d3Text.includes('DATABASE REPORT, Database (database.accdb), the parts named under THE PUPIL\'S EVIDENCE FOR THIS PART below:\nQUERY "MICROCHIP REMINDER" (select query)')
+        && evidenceText(d3).includes('DATABASE REPORT, Database (database.accdb), query:MICROCHIP REMINDER: given above'), evidenceText(d3).slice(0, 400))
     check('…the fields shown, in order', d3Text.includes('  Fields shown, in order: PETS.[PET ID], '), evidenceText(d3))
     check('…the criteria date in words', d3Text.includes('<#1/1/2020# (1 January 2020)'))
     check('…the sort', d3Text.includes('  Sort: PETS.[DATE OF BIRTH] ascending'))
     check('…no other query, no records, no attachments',
-      !/UNPAID TREATMENTS|RECORDS IN|EVIDENCE /.test(evidenceText(d3)) && inline(d3).length === 0, evidenceText(d3))
+      !/UNPAID TREATMENTS|RECORDS IN/.test(d3Text) && !/EVIDENCE /.test(evidenceText(d3)) && inline(d3).length === 0, d3Text)
 
     const ch = req('CH')!
-    const chEvidence = evidenceText(ch)
-    check('changes part: the changes and OWNERS\' records, in one block',
-      /^DATABASE REPORT, Database \(database\.accdb\), (changes, records:OWNERS|records:OWNERS, changes):$/m.test(chEvidence)
+    const chEvidence = textOf(ch)
+    check('changes part: the changes and OWNERS\' records, in one report',
+      /^DATABASE REPORT, Database \(database\.accdb\), (changes, records:OWNERS|records:OWNERS, changes): given above/m.test(evidenceText(ch))
+        && (chEvidence.match(/^DATABASE REPORT, Database \(database\.accdb\), the parts named/gm) ?? []).length === 1
         && /^CHANGES \(compared with the starting database "PALM GROVE VETS\.accdb"\)$/m.test(chEvidence)
         && /^ {2}APPOINTMENTS: 1 record added: /m.test(chEvidence) && /^ {2}OWNERS: 1 record added: /m.test(chEvidence)
         && /^RECORDS IN OWNERS \(/m.test(chEvidence), chEvidence.slice(0, 600))
@@ -311,7 +315,7 @@ async function main() {
     const dn = req('DN')!
     check('an absent query is said to be absent, with the queries there are',
       evidenceText(dn).includes('There is no saved query called NOPE in this database. Its saved queries are: MICROCHIP REMINDER, UNPAID TREATMENTS.')
-        && /^FORMS AND REPORTS$/m.test(evidenceText(dn)), evidenceText(dn))
+        && /^FORMS AND REPORTS$/m.test(textOf(dn)), evidenceText(dn))
 
     const six = req('6')!
     check('screenshot part: its two screenshots, labelled by heading',
@@ -338,8 +342,9 @@ async function main() {
     check('no base64 on the job rows', markRows.every((r) => !hasBase64(r.model_request) && !hasBase64(r.model_response)))
     const d3Row = markRows.find((r) => r.model_request.label === 'D3')?.model_request
     check('the job row stores the database system prompt and the block key',
-      d3Row?.system === DATABASE_MARK_SYSTEM && d3Row.textSections?.length === 1
-        && d3Row.textSections[0].key === 'database:database:query:MICROCHIP REMINDER', JSON.stringify(d3Row?.textSections))
+      d3Row?.system === DATABASE_MARK_SYSTEM && d3Row.textSections?.length === 2
+        && d3Row.textSections[0].key === 'report:database:database:query:MICROCHIP REMINDER'
+        && d3Row.textSections[1].key === 'database:database:query:MICROCHIP REMINDER', JSON.stringify(d3Row?.textSections))
     const sixRow = markRows.find((r) => r.model_request.label === '6')?.model_request
     check('…and attachments as metadata', sixRow?.attachments?.length === 2
       && sixRow.attachments.every((a: any) => /^EVIDENCE 6, SCREENSHOT \d:$/.test(a.label) && a.bytes > 0), JSON.stringify(sixRow?.attachments))
@@ -363,6 +368,7 @@ async function main() {
     const final = await latestSubmission(PUPIL)
     check('the last job marks the submission', Boolean(last?.complete) && final.mark_status === 'marked', String(final.mark_status))
   } finally {
+    await restoreBatchSwitch()
     await tearDown()
   }
 
@@ -382,5 +388,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error)
-  tearDown().finally(() => process.exit(1))
+  restoreBatchSwitch().catch(console.error).then(() => tearDown()).finally(() => process.exit(1))
 })

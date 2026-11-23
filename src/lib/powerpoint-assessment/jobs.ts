@@ -4,7 +4,15 @@ import { query, withDbClient } from "@/lib/db"
 import { resolveQuestionModelRoute } from "@/lib/assessment-paper/question-model-route"
 import { logQueueEvent } from "@/lib/ai/marking-log"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
-import { activityOf, logIgnoredQuestionModel, logIgnoredTextAnswerRoute, recordCall, type AssessmentJob } from "@/lib/assessment-paper/jobs"
+import {
+  activityOf,
+  batchParkHook,
+  logIgnoredQuestionModel,
+  logIgnoredTextAnswerRoute,
+  recordCall,
+  type AssessmentJob,
+} from "@/lib/assessment-paper/jobs"
+import { batchRecord, batchReply, type BatchJobResult } from "@/lib/ai/message-batches"
 import type { ModelJsonCall } from "@/lib/assessment-paper/reading"
 import {
   completeAssessmentQuestionMark,
@@ -12,7 +20,7 @@ import {
   type AssessmentSubmissionTotals,
   type ReadCompletion,
 } from "@/lib/assessment-paper/store"
-import { markPowerPointQuestion } from "@/lib/powerpoint-assessment/marking"
+import { finishPowerPointQuestionMark, markPowerPointQuestion, type PowerPointMarkContext } from "@/lib/powerpoint-assessment/marking"
 import { readPowerPointSubmission, type PowerPointReaders } from "@/lib/powerpoint-assessment/reading"
 import { isPracticalAssessmentType } from "@/dino.config"
 import { practicalTypeConfig } from "@/lib/practical-assessment/types"
@@ -141,31 +149,67 @@ export async function runPowerPointReadJob(
   return { ...outcome, held: null }
 }
 
-/** Mark one question of one hand-in and record it. */
+/**
+ * Mark one question of one hand-in and record it. With the route's batch
+ * switch on, the request is parked for a Message Batch (the job stays
+ * 'processing'); its result comes back as `options.batch` and goes through
+ * the same reply handling and store.
+ */
 export async function runPowerPointMarkJob(
   job: AssessmentJob & { questionId: string },
   call?: ModelJsonCall,
-): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean }> {
-  const { activityId, type } = await activityOf(job.submissionId)
-  // The question's own model, else the type's text-question route when the
-  // question sends no pictures and that route has its own row (migration
-  // 150), else the activity-wide route.
-  const route = await resolveQuestionModelRoute(type, job.questionId)
-  const label = labelOf(type)
-  await logIgnoredQuestionModel(route, job)
-  await logIgnoredTextAnswerRoute(route, job)
-  await logQueueEvent("info", `Marking ${label} submission ${job.submissionId}`, {
-    questionId: job.questionId,
-    provider: route.provider,
-    model: route.model,
-    modelSource: route.source,
-  })
+  options: { batch?: BatchJobResult } = {},
+): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean; parked?: true }> {
+  let marked: Awaited<ReturnType<typeof markPowerPointQuestion>>
+  let label: string
+  if (options.batch) {
+    const context = options.batch.context as PowerPointMarkContext
+    label = await submissionLabel(job.submissionId)
+    marked = finishPowerPointQuestionMark(context, batchReply(options.batch, context.model))
+    if (marked.call) marked.call.request.batch = batchRecord(options.batch)
+  } else {
+    const { activityId, type } = await activityOf(job.submissionId)
+    // The question's own model, else the type's text-question route when the
+    // question sends no pictures and that route has its own row (migration
+    // 150), else the activity-wide route.
+    const route = await resolveQuestionModelRoute(type, job.questionId)
+    label = labelOf(type)
+    await logIgnoredQuestionModel(route, job)
+    await logIgnoredTextAnswerRoute(route, job)
+    await logQueueEvent("info", `Marking ${label} submission ${job.submissionId}`, {
+      questionId: job.questionId,
+      provider: route.provider,
+      model: route.model,
+      modelSource: route.source,
+      ...(route.useBatch ? { batch: true } : {}),
+    })
 
-  const marked = await markPowerPointQuestion(
-    { submissionId: job.submissionId, activityId, questionId: job.questionId, provider: route.provider, model: route.model },
-    call,
-  )
-  if (marked.call && marked.hold) {
+    marked = await markPowerPointQuestion(
+      {
+        submissionId: job.submissionId,
+        activityId,
+        questionId: job.questionId,
+        provider: route.provider,
+        model: route.model,
+        effort: route.effort,
+      },
+      call,
+      { park: batchParkHook<PowerPointMarkContext>(route, job, "practical-mark", job.questionId) },
+    )
+  }
+  if (marked.parked) {
+    await logQueueEvent("info", `Parked question ${job.questionId} of ${label} submission ${job.submissionId} for a Message Batch`)
+    return { totals: null, complete: false, parked: true }
+  }
+  if (marked.call?.request.reused) {
+    await recordCall(job.jobId, marked.call)
+    await logQueueEvent("info", `Reused the stored mark: question ${job.questionId} of ${label} submission ${job.submissionId}`, {
+      questionId: job.questionId,
+      held: Boolean(marked.hold),
+      marksAwarded: marked.call.response.marksAwarded,
+      maxMarks: marked.call.request.maxMarks,
+    })
+  } else if (marked.call && marked.hold) {
     await recordCall(job.jobId, marked.call)
     await logQueueEvent("info", `Held for the teacher: question ${job.questionId} of ${label} submission ${job.submissionId}`, {
       questionId: job.questionId,
@@ -189,5 +233,6 @@ export async function runPowerPointMarkJob(
     rows: marked.rows,
     ...(marked.call ? { markerEvidence: { questionId: job.questionId, text: marked.evidenceNote } } : {}),
     ...(marked.hold ? { hold: { questionId: job.questionId, reason: marked.hold } } : {}),
+    markRequest: marked.markRequest ?? null,
   })
 }

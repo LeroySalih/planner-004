@@ -13,6 +13,7 @@ import { recalculateAssessmentPaperMaxMarks } from "@/lib/scoring/derive-max-mar
 import { validateQuestionEvidence, type QuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
 import { MODEL_CATALOGUE } from "@/lib/ai/model-routing"
 import { questionModelProblem } from "@/lib/assessment-paper/question-model"
+import { storeMarkRequest, type MarkRequestRecord } from "@/lib/assessment-paper/mark-reuse"
 import type { PracticalAssessmentType } from "@/lib/practical-assessment/types"
 
 // An assessment paper is marked question by question. Each question splits
@@ -1100,6 +1101,12 @@ export async function completeAssessmentRead(input: {
  * on it go; teacher rows stay), the answer set 'unreadable' with the reason
  * as its text (a teacher-edited answer keeps its text), so heldQuestionsMessage
  * names it in mark_error and the results panel asks the teacher to check it.
+ *
+ * `markRequest` (the marker's request fingerprint and validated result) is
+ * kept in submission_question_mark_requests once the result is applied, in
+ * this transaction, so a later mark of the same request reuses it with no
+ * model call (mark-reuse.ts). A superseded job or a failed apply stores
+ * nothing.
  */
 export async function completeAssessmentQuestionMark(input: {
   submissionId: string
@@ -1107,6 +1114,7 @@ export async function completeAssessmentQuestionMark(input: {
   rows: QuestionCriterionMarkInput[]
   markerEvidence?: { questionId: string; text: string | null }
   hold?: { questionId: string; reason: string }
+  markRequest?: MarkRequestRecord | null
 }): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean; superseded?: boolean }> {
   return inTransaction(async (client) => {
     await lockAssessmentSubmission(client, input.submissionId)
@@ -1143,6 +1151,7 @@ export async function completeAssessmentQuestionMark(input: {
         [input.submissionId, input.markerEvidence.questionId, input.markerEvidence.text],
       )
     }
+    if (input.markRequest) await storeMarkRequest(client, input.submissionId, input.markRequest)
     const complete = await closeAssessmentJob(client, input.submissionId, input.jobId)
     return { totals: await readTotals(client, input.submissionId), complete }
   })

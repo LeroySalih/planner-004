@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
-import { deleteAiModelRouteAction, upsertAiModelRouteAction } from '@/lib/server-updates'
+import { Switch } from '@/components/ui/switch'
+import { deleteAiModelRouteAction, setAiModelRouteBatchAction, upsertAiModelRouteAction } from '@/lib/server-updates'
 import { AI_EFFORT_LEVELS, type AiEffort, type AiModelRoute, type AiProvider } from '@/types'
 
 /** Mirrors CatalogueEntry in model-routing.ts, minus the server-only import. */
@@ -46,6 +46,8 @@ type Props = {
   keyStatus: KeyStatus[]
   initialRoutes: AiModelRoute[]
   pricingAsOf: string
+  /** Route keys whose batch switch has effect (BATCH_ROUTE_KEYS); shown on their "All criteria" row only. */
+  batchKeys: string[]
 }
 
 type ScType = 'binary' | 'levelled' | null
@@ -68,6 +70,7 @@ export function AiModelRouteManager({
   keyStatus,
   initialRoutes,
   pricingAsOf,
+  batchKeys,
 }: Props) {
   const [routes, setRoutes] = useState<AiModelRoute[]>(initialRoutes)
   const [savingKey, setSavingKey] = useState<string | null>(null)
@@ -122,6 +125,7 @@ export function AiModelRouteManager({
           model,
           effort,
           active: true,
+          use_batch: provider === 'anthropic' ? (existing?.provider === 'anthropic' ? existing.use_batch : true) : false,
           updated_at: new Date().toISOString(),
           updated_by: null,
         },
@@ -153,6 +157,42 @@ export function AiModelRouteManager({
       prev.map((r) => (r.route_id === existing.route_id ? { ...r, effort } : r)),
     )
     toast.success('Effort saved')
+  }
+
+  async function handleBatchChange(activityType: string, useBatch: boolean) {
+    const existing = findRoute(activityType, null)
+    if (!existing) return
+    const key = `${activityType}::*`
+    setSavingKey(key)
+    const { error } = await setAiModelRouteBatchAction({ activityType, useBatch })
+    setSavingKey(null)
+    if (error) {
+      toast.error(error)
+      return
+    }
+    setRoutes((prev) => prev.map((r) => (r.route_id === existing.route_id ? { ...r, use_batch: useBatch } : r)))
+    toast.success(useBatch ? 'Batch marking on' : 'Batch marking off')
+  }
+
+  /** The batch switch of a route key, or nothing when the key cannot go by batch. */
+  function batchSwitch(activityType: string, label: string, busy: boolean) {
+    if (!batchKeys.includes(activityType)) return null
+    const route = findRoute(activityType, null)
+    const usable = Boolean(route) && route!.provider === 'anthropic'
+    return (
+      <label
+        className="inline-flex items-center gap-2 text-xs text-muted-foreground"
+        title={usable ? undefined : 'Batch marking needs a Claude model on this row'}
+      >
+        <Switch
+          aria-label={`Batch for ${label}`}
+          disabled={busy || !usable}
+          checked={usable && route!.use_batch}
+          onCheckedChange={(checked) => handleBatchChange(activityType, checked)}
+        />
+        Batch: half price, results can take up to 24 hours
+      </label>
+    )
   }
 
   const missingKeys = keyStatus.filter((k) => k.inUse && !k.configured)
@@ -259,6 +299,8 @@ export function AiModelRouteManager({
                     ))}
                   </select>
 
+                  {scType === null ? batchSwitch(activityType, activityType, busy) : null}
+
                   {entry ? (
                     <span className="text-xs text-muted-foreground">
                       {entry.visionTier === 'high' ? 'high-res vision' : 'standard vision'}
@@ -326,6 +368,7 @@ export function AiModelRouteManager({
                     <option key={level} value={level}>{level}</option>
                   ))}
                 </select>
+                {batchSwitch(surface.key, surface.label, busy)}
                 {busy ? <span className="text-xs text-muted-foreground">Saving…</span> : null}
               </div>
             )

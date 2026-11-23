@@ -11,6 +11,7 @@ import type { ModelJsonCall } from '@/lib/assessment-paper/reading'
 import type { ModelRequest } from '@/lib/ai/model-client'
 import { AssessmentActivityQuestionsInput, getAssessmentActivity, toAssessmentQuestionInputs } from '@/lib/mcp/assessment-activities'
 import { runPowerPointMarkJob } from '@/lib/powerpoint-assessment/jobs'
+import { restoreBatchSwitch, turnBatchSwitchOff } from '../ai/batch-switch'
 
 // The marking model per question (activity_questions.marking_model,
 // migration 148): which questions send pictures (questionSendsImages, per
@@ -169,6 +170,7 @@ async function main() {
   ]))
   check('no evidence on a practical question is text only', !questionSendsImages(ppt, []))
 
+  await turnBatchSwitchOff()
   await setUp()
   try {
     const q = (label: string, evidence: unknown[] | undefined, markingModel?: string | null): AssessmentQuestionInput => ({
@@ -334,6 +336,7 @@ async function main() {
         && paperLogs.some((l) => l.level === 'warn' && l.metadata.storedModel === HAIKU), JSON.stringify(paperLogs))
     check('no model was called for the paper', !paperCalled)
   } finally {
+    await restoreBatchSwitch()
     await tearDown()
   }
 
@@ -344,6 +347,7 @@ async function main() {
 main().catch(async (error) => {
   console.error(error)
   try {
+    await restoreBatchSwitch()
     await tearDown()
   } catch {}
   process.exit(1)

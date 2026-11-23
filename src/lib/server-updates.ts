@@ -434,6 +434,7 @@ export {
 export {
   readAiModelRoutesAction,
   upsertAiModelRouteAction,
+  setAiModelRouteBatchAction,
   deleteAiModelRouteAction,
   readProviderKeyStatusAction,
 } from './server-actions/ai-model-routes'

@@ -15,10 +15,12 @@ import {
 import { validateReadReply, type ModelJsonCall } from '@/lib/assessment-paper/reading'
 import { validateMarkReply } from '@/lib/assessment-paper/marking'
 import { runAssessmentMarkJob, runAssessmentReadJob } from '@/lib/assessment-paper/jobs'
+import { forgetStoredMarks } from '@/lib/assessment-paper/mark-reuse'
 import { readAssessmentPaperResult } from '@/lib/assessment-paper/results'
 import { enqueueMarkingTasks } from '@/lib/ai/marking-queue'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 import { pagesToPdf, syntheticFrontSheet, syntheticQuestionPage } from './synthetic-front-sheet'
+import { restoreBatchSwitch, turnBatchSwitchOff } from '../ai/batch-switch'
 
 // Marking v2 (read, then mark per question) against a dev database and
 // ./files, with every model call stubbed: no request leaves the machine.
@@ -193,6 +195,7 @@ async function main() {
   )
   const [A, B] = scs.map((row) => row.success_criteria_id)
 
+  await turnBatchSwitchOff()
   await setUp()
   try {
     const blankFront = await syntheticFrontSheet(false, false)
@@ -300,7 +303,10 @@ async function main() {
     check('Q5 marked, submission not yet', !outcome.complete && (await submission(sub)).mark_status !== 'marked')
 
     // A teacher marks Q1/A, then Q1 is marked again: the teacher's row stays.
+    // The request is unchanged, so its stored answer is forgotten first (as
+    // remark_assessment_activity force does): this mark is a fresh reply.
     await setTeacherQuestionCriterionMark(sub, id['1'], A, 0)
+    await forgetStoredMarks([sub], [id['1']])
     const { rows: [{ job_id: remarkJob }] } = await query<{ job_id: string }>(
       "insert into external_jobs (job_type, payload, status) values ('ai_mark', jsonb_build_object('submissionId', $1::text, 'assignmentId', $2::text, 'questionId', $3::text), 'processing') returning job_id",
       [sub, readJob.assignmentId, id['1']],
@@ -389,6 +395,7 @@ async function main() {
     state = await submission(sub)
     check('a folded paper is not sent', (await openJobs(sub)).length === 0 && state.mark_status === null && /folded/.test(state.mark_error ?? ''), JSON.stringify(state))
   } finally {
+    await restoreBatchSwitch()
     await tearDown()
   }
 
@@ -404,5 +411,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error)
-  tearDown().finally(() => process.exit(1))
+  restoreBatchSwitch().catch(console.error).then(() => tearDown()).finally(() => process.exit(1))
 })

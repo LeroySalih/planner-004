@@ -88,7 +88,9 @@ export function chooseQuestionModel(
     })
     if (!problem) {
       const entry = MODEL_CATALOGUE.find((e) => e.model === question.markingModel)!
-      return { provider: entry.provider, model: entry.model, effort: entry.effort, source: "question", ignored: null, textRouteIgnored: null }
+      // A question's own model takes the activity route's batch switch (migration 152).
+      const useBatch = Boolean(activityRoute.useBatch) && entry.provider === "anthropic"
+      return { provider: entry.provider, model: entry.model, effort: entry.effort, useBatch, source: "question", ignored: null, textRouteIgnored: null }
     }
     ignored = { model: question.markingModel, reason: problem }
   }

@@ -3847,19 +3847,29 @@ The result is checked as create_activity checks it; a body over a limit is refus
         + 'Assessment paper with questions: the script is NOT read again; the named questions are marked again from the stored transcriptions (marker and legacy rows go, teacher rows and comments stay, a waiting mark job is left, a running one replaced), '
         + 'reported per pupil in question_marks; further skips not_read (the read is not complete), blank_answers, already_queued. nothing_to_remark then means every named question is marked in full by a teacher. held: sent but held by the queue, with the reason; failed: could not be sent (recorded on the submission). '
         + 'Refused for any other activity type and for a paper folded in from the old assessments module. dry_run: true reports what would be queued and changes nothing. '
+        + 'A question whose mark request is unchanged (same evidence, transcription, mark scheme, question, criteria, model and prompt) gets its stored marks, comments and marker\'s note back with no model call; any change makes a fresh call. '
+        + 'force: true forgets the stored answers of the submissions (and questions) sent, so every question is marked by a fresh model call; stored_marks_forgotten says how many. '
         + 'Arrays may be sent as JSON strings.',
       inputSchema: {
         activity_id: z.string().min(1).describe('The assessment-paper, PowerPoint assessment or database assessment activity id.'),
         pupil_ids: RemarkPupilIdsInput.optional().describe('Only these pupils (user ids from get_assessment_activity). Omit for every pupil with a submission. May be a JSON string.'),
         questions: RemarkQuestionsInput.optional().describe('Only these questions, by label (e.g. ["1e","1j"]). Omit for every question. May be a JSON string.'),
         dry_run: mcpBoolean.optional().describe('true: report what would be queued; change nothing. Default false.'),
+        force: mcpBoolean.optional().describe('true: do not reuse stored marks; every question sent is marked by a fresh model call. Default false.'),
       },
       outputSchema: { remark: z.record(z.string(), z.unknown()).nullable() },
     },
-    async ({ activity_id, pupil_ids, questions, dry_run }) =>
+    async ({ activity_id, pupil_ids, questions, dry_run, force }) =>
       assessmentActivityTool(
         'remark',
-        () => remarkAssessmentActivity({ activityId: activity_id, pupilIds: pupil_ids, questions, dryRun: dry_run ?? false }),
+        () =>
+          remarkAssessmentActivity({
+            activityId: activity_id,
+            pupilIds: pupil_ids,
+            questions,
+            dryRun: dry_run ?? false,
+            force: force ?? false,
+          }),
         describeActivityRemark,
       ),
   )

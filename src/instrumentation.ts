@@ -1,7 +1,8 @@
 /**
  * Next.js instrumentation hook — runs once when a server instance boots.
  * We use it to fail fast on a misconfigured environment before serving any
- * traffic. See src/lib/env/required-env.ts for the manifest.
+ * traffic (see src/lib/env/required-env.ts for the manifest), and to start
+ * the Message Batches driver.
  */
 export async function register(): Promise<void> {
   // Only the Node.js server runtime has the full env + fs access; skip the Edge
@@ -14,4 +15,9 @@ export async function register(): Promise<void> {
 
   const { assertRequiredEnv } = await import("./lib/env/assert-env")
   assertRequiredEnv()
+
+  // Message Batches for question marking: submit and poll while any batch
+  // work is open (src/lib/ai/batch-driver.ts).
+  const { startBatchDriver } = await import("./lib/ai/batch-driver")
+  startBatchDriver()
 }

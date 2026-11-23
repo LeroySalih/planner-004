@@ -366,6 +366,12 @@ export type AssessmentActivityPupilProgress = {
   questions_awaiting_check: number
   /** Questions the pupil has flagged for the teacher to check, not yet cleared (migration 144). */
   questions_flagged: number
+  /**
+   * Jobs (the read, question marks) waiting on a Message Batch (migration
+   * 152): 'to_send' until they are sent, then 'sent' (results can take up
+   * to 24 hours). Null when nothing waits on a batch.
+   */
+  batch: { jobs: number; status: 'to_send' | 'sent' } | null
 }
 
 /**
@@ -400,6 +406,8 @@ export async function getAssessmentActivity(activityId: string) {
     questions_to_mark: number
     questions_held: number
     questions_flagged: number
+    batch_jobs: number
+    batch_unsent: number
   }>(
     `with sitting as (
        select gm.user_id as pupil_id
@@ -428,7 +436,9 @@ export async function getAssessmentActivity(activityId: string) {
             coalesce(progress.questions_marked, 0) as questions_marked,
             coalesce(progress.questions_to_mark, 0) as questions_to_mark,
             coalesce(progress.questions_held, 0) as questions_held,
-            coalesce(progress.questions_flagged, 0) as questions_flagged
+            coalesce(progress.questions_flagged, 0) as questions_flagged,
+            coalesce(progress.batch_jobs, 0) as batch_jobs,
+            coalesce(progress.batch_unsent, 0) as batch_unsent
        from sitting
        join profiles p on p.user_id = sitting.pupil_id
        left join latest l on l.user_id = p.user_id
@@ -462,7 +472,11 @@ export async function getAssessmentActivity(activityId: string) {
                                        and j.payload->>'questionId' = q.question_id::text)) as questions_held,
                 (select count(*)::int from submission_question_flags f
                   where f.submission_id = l.submission_id
-                    and f.withdrawn_at is null and f.resolved_at is null) as questions_flagged
+                    and f.withdrawn_at is null and f.resolved_at is null) as questions_flagged,
+                (select count(*)::int from model_batch_items b
+                  where b.submission_id = l.submission_id) as batch_jobs,
+                (select count(*)::int from model_batch_items b
+                  where b.submission_id = l.submission_id and b.batch_id is null) as batch_unsent
           where l.submission_id is not null
        ) progress on true
       order by p.last_name nulls last, p.first_name nulls last, p.user_id`,
@@ -497,6 +511,9 @@ export async function getAssessmentActivity(activityId: string) {
           questions_held: Number(p.questions_held),
           questions_awaiting_check: awaitingCheck.get(p.submission_id) ?? 0,
           questions_flagged: Number(p.questions_flagged),
+          batch: Number(p.batch_jobs) > 0
+            ? { jobs: Number(p.batch_jobs), status: Number(p.batch_unsent) > 0 ? 'to_send' : 'sent' }
+            : null,
         }
       : null,
   })

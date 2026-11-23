@@ -126,6 +126,7 @@ export async function generateUnitChatReply(params: {
       userMessage: params.userMessage,
       historyTurns: params.history.length,
       durationMs: reply?.durationMs ?? Date.now() - startedAt,
+      usage: reply?.usage ?? null,
       ...over,
     })
 

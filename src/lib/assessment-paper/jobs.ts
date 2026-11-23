@@ -1,7 +1,9 @@
 import "server-only"
 
 import { query } from "@/lib/db"
-import { resolveModelRoute } from "@/lib/ai/model-routing"
+import { resolveModelRoute, type ModelChoice } from "@/lib/ai/model-routing"
+import { batchRecord, batchReply, parkForBatch, type BatchItemKind, type BatchJobResult } from "@/lib/ai/message-batches"
+import type { ModelRequest } from "@/lib/ai/model-client"
 import { ASSESSMENT_TEXT_ANSWER_SURFACE, resolveQuestionModelRoute, type QuestionModelRoute } from "@/lib/assessment-paper/question-model-route"
 import { logQueueEvent } from "@/lib/ai/marking-log"
 import {
@@ -10,8 +12,13 @@ import {
   type AssessmentSubmissionTotals,
   type ReadCompletion,
 } from "@/lib/assessment-paper/store"
-import { readAssessmentScript, type ModelJsonCall } from "@/lib/assessment-paper/reading"
-import { PermanentAssessmentMarkingError, markAssessmentQuestion } from "@/lib/assessment-paper/marking"
+import { finishAssessmentRead, readAssessmentScript, type AssessmentReadContext, type ModelJsonCall } from "@/lib/assessment-paper/reading"
+import {
+  PermanentAssessmentMarkingError,
+  finishAssessmentQuestionMark,
+  markAssessmentQuestion,
+  type AssessmentMarkContext,
+} from "@/lib/assessment-paper/marking"
 
 // The two queue jobs of an assessment paper (Marking v2):
 //
@@ -24,6 +31,12 @@ import { PermanentAssessmentMarkingError, markAssessmentQuestion } from "@/lib/a
 // The queue worker (marking-queue.ts) claims the job, sets it 'processing',
 // and handles retries and failure; these run only the work. `call` is the
 // model call, stubbed in tests.
+//
+// When the route that chose the model has its batch switch on (migration
+// 152, Anthropic only), the prepared request is parked for a Message Batch
+// instead of called (message-batches.ts): the job stays 'processing' and
+// returns parked. Its result comes back here as `options.batch` and goes
+// through the same reply handling and store as a direct reply.
 
 /** Surface key of the read in ai_model_routes (migration 135). */
 export const ASSESSMENT_READ_SURFACE = "surface:assessment-read"
@@ -56,19 +69,61 @@ export async function activityOf(submissionId: string): Promise<{ activityId: st
   return { activityId: rows[0].activity_id, type: rows[0].type }
 }
 
-/** Read one script, store its answers, and queue the questions to mark. */
-export async function runAssessmentReadJob(job: AssessmentJob, call?: ModelJsonCall): Promise<ReadCompletion> {
-  const { activityId } = await activityOf(job.submissionId)
-  const route = await resolveModelRoute(ASSESSMENT_READ_SURFACE, null)
-  await logQueueEvent("info", `Reading assessment paper submission ${job.submissionId}`, {
-    provider: route.provider,
-    model: route.model,
-  })
+/**
+ * The park hook for a job whose route sends by batch (useBatch, Anthropic),
+ * else undefined (a direct call). A parked request keeps the job
+ * 'processing' (see message-batches.ts).
+ */
+export function batchParkHook<C>(
+  route: ModelChoice,
+  job: AssessmentJob,
+  kind: BatchItemKind,
+  questionId: string | null,
+): ((prepared: { request: ModelRequest; requestHash?: string; context: C }) => Promise<boolean>) | undefined {
+  if (!route.useBatch || route.provider !== "anthropic") return undefined
+  return (prepared) =>
+    parkForBatch({
+      jobId: job.jobId,
+      kind,
+      submissionId: job.submissionId,
+      questionId,
+      requestHash: prepared.requestHash,
+      request: prepared.request,
+      context: prepared.context,
+    })
+}
 
-  const read = await readAssessmentScript(
-    { submissionId: job.submissionId, activityId, provider: route.provider, model: route.model },
-    call,
-  )
+/** What a job returns when its request waits in a Message Batch: nothing applied yet. */
+const PARKED = { totals: null, complete: false, parked: true as const }
+
+/** Read one script, store its answers, and queue the questions to mark. */
+export async function runAssessmentReadJob(
+  job: AssessmentJob,
+  call?: ModelJsonCall,
+  options: { batch?: BatchJobResult } = {},
+): Promise<ReadCompletion & { parked?: true }> {
+  let read: Awaited<ReturnType<typeof readAssessmentScript>>
+  if (options.batch) {
+    const context = options.batch.context as AssessmentReadContext
+    read = finishAssessmentRead(context, batchReply(options.batch, context.model))
+    read.call.request.batch = batchRecord(options.batch)
+  } else {
+    const { activityId } = await activityOf(job.submissionId)
+    const route = await resolveModelRoute(ASSESSMENT_READ_SURFACE, null)
+    await logQueueEvent("info", `Reading assessment paper submission ${job.submissionId}`, {
+      provider: route.provider,
+      model: route.model,
+    })
+    read = await readAssessmentScript(
+      { submissionId: job.submissionId, activityId, provider: route.provider, model: route.model },
+      call,
+      { park: batchParkHook<AssessmentReadContext>(route, job, "assessment-read", null) },
+    )
+  }
+  if (!read) {
+    await logQueueEvent("info", `Parked the read of assessment paper submission ${job.submissionId} for a Message Batch`)
+    return { ...PARKED, queuedQuestionIds: [], blankQuestionIds: [], teacherQuestionIds: [], heldQuestionIds: [] }
+  }
   await recordCall(job.jobId, read.call)
 
   const outcome = await completeAssessmentRead({
@@ -120,33 +175,55 @@ export async function logIgnoredTextAnswerRoute(route: QuestionModelRoute, job: 
 export async function runAssessmentMarkJob(
   job: AssessmentJob & { questionId: string },
   call?: ModelJsonCall,
-): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean }> {
-  const { activityId, type } = await activityOf(job.submissionId)
-  // Allocations, not the criterion's own type, set the marks on a paper, so
-  // the question's own model applies, else the text-answer route when this
-  // answer was read as text, else the activity-wide route of the activity's
-  // own type.
-  const route = await resolveQuestionModelRoute(type, job.questionId, job.submissionId)
-  await logIgnoredQuestionModel(route, job)
-  await logIgnoredTextAnswerRoute(route, job)
-  await logQueueEvent("info", `Marking assessment paper submission ${job.submissionId}`, {
-    questionId: job.questionId,
-    provider: route.provider,
-    model: route.model,
-    modelSource: route.source,
-  })
-
-  const marked = await markAssessmentQuestion(
-    {
-      submissionId: job.submissionId,
-      activityId,
+  options: { batch?: BatchJobResult } = {},
+): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean; parked?: true }> {
+  let marked: Awaited<ReturnType<typeof markAssessmentQuestion>>
+  if (options.batch) {
+    const context = options.batch.context as AssessmentMarkContext
+    marked = finishAssessmentQuestionMark(context, batchReply(options.batch, context.model))
+    if (marked.call) marked.call.request.batch = batchRecord(options.batch)
+  } else {
+    const { activityId, type } = await activityOf(job.submissionId)
+    // Allocations, not the criterion's own type, set the marks on a paper, so
+    // the question's own model applies, else the text-answer route when this
+    // answer was read as text, else the activity-wide route of the activity's
+    // own type.
+    const route = await resolveQuestionModelRoute(type, job.questionId, job.submissionId)
+    await logIgnoredQuestionModel(route, job)
+    await logIgnoredTextAnswerRoute(route, job)
+    await logQueueEvent("info", `Marking assessment paper submission ${job.submissionId}`, {
       questionId: job.questionId,
       provider: route.provider,
       model: route.model,
-    },
-    call,
-  )
-  if (marked.call) {
+      modelSource: route.source,
+      ...(route.useBatch ? { batch: true } : {}),
+    })
+
+    marked = await markAssessmentQuestion(
+      {
+        submissionId: job.submissionId,
+        activityId,
+        questionId: job.questionId,
+        provider: route.provider,
+        model: route.model,
+        effort: route.effort,
+      },
+      call,
+      { park: batchParkHook<AssessmentMarkContext>(route, job, "assessment-mark", job.questionId) },
+    )
+  }
+  if (marked.parked) {
+    await logQueueEvent("info", `Parked question ${job.questionId} of assessment paper submission ${job.submissionId} for a Message Batch`)
+    return PARKED
+  }
+  if (marked.call?.request.reused) {
+    await recordCall(job.jobId, marked.call)
+    await logQueueEvent("info", `Reused the stored mark: question ${job.questionId} of assessment paper submission ${job.submissionId}`, {
+      questionId: job.questionId,
+      marksAwarded: marked.call.response.marksAwarded,
+      maxMarks: marked.call.request.maxMarks,
+    })
+  } else if (marked.call) {
     await recordCall(job.jobId, marked.call)
     await logQueueEvent("info", `Marked assessment paper submission ${job.submissionId}`, {
       questionId: job.questionId,
@@ -159,5 +236,10 @@ export async function runAssessmentMarkJob(
     await logQueueEvent("info", `Not marked: question ${job.questionId} of submission ${job.submissionId} (${marked.skipped})`)
   }
 
-  return completeAssessmentQuestionMark({ submissionId: job.submissionId, jobId: job.jobId, rows: marked.rows })
+  return completeAssessmentQuestionMark({
+    submissionId: job.submissionId,
+    jobId: job.jobId,
+    rows: marked.rows,
+    markRequest: marked.markRequest ?? null,
+  })
 }

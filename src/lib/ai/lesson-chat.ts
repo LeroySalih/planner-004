@@ -298,6 +298,7 @@ export async function generateLessonChatReply(params: {
         ...documents.map((d) => ({ fileName: "(document)", kind: d.mimeType })),
       ],
       durationMs: reply?.durationMs ?? Date.now() - startedAt,
+      usage: reply?.usage ?? null,
       ...over,
     })
 

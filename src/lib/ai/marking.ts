@@ -2,6 +2,7 @@ import "server-only"
 
 import { callModelJson, defaultMarkingModel, type ModelPart } from "@/lib/ai/model-client"
 import { assertUncorruptedModelText } from "@/lib/ai/model-output-guard"
+import type { ModelUsage } from "@/lib/ai/model-usage"
 import type { AiProvider } from "@/types"
 
 export interface CriterionContext {
@@ -60,6 +61,8 @@ export interface MarkingCallRecord {
     feedback: string
     /** The model's reply verbatim, truncated for storage. */
     raw: string
+    /** Token counts the provider reported (model-usage.ts). */
+    usage: ModelUsage | null
   }
   durationMs: number
   attempts: number
@@ -373,6 +376,7 @@ export async function markWithModel(request: MarkingRequest): Promise<MarkingRes
         marksAwarded,
         feedback,
         raw: reply.raw.slice(0, RAW_RESPONSE_LIMIT),
+        usage: reply.usage,
       },
       durationMs: reply.durationMs,
       attempts: reply.attempts,

@@ -16,6 +16,7 @@ import { handInPowerPointAssessment, storePracticalFile } from '@/lib/powerpoint
 import { runPowerPointMarkJob, runPowerPointReadJob } from '@/lib/powerpoint-assessment/jobs'
 import { POWERPOINT_MARK_SYSTEM, holdReason, isNotAHoldReason } from '@/lib/powerpoint-assessment/marking'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
+import { restoreBatchSwitch, turnBatchSwitchOff } from '../ai/batch-switch'
 
 // The marker's hold_for_teacher reply: a part that needs a value the report
 // gives as UNKNOWN is held for the teacher, as a required screenshot DINO
@@ -162,6 +163,7 @@ async function main() {
   )
   const [A, B] = scs.map((s) => s.success_criteria_id)
 
+  await turnBatchSwitchOff()
   await setUp()
   try {
     const q = (label: string) => ({
@@ -187,7 +189,7 @@ async function main() {
     const prompts: string[] = []
     const calls = new Map<string, number>()
     const stub: ModelJsonCall = async (request) => {
-      const prompt = request.parts[0]?.text ?? ''
+      const prompt = request.parts.find((part) => part.text?.startsWith('PART '))?.text ?? ''
       prompts.push(prompt)
       const label = /^PART (\S+) /.exec(prompt)?.[1] ?? '?'
       calls.set(label, (calls.get(label) ?? 0) + 1)
@@ -262,6 +264,7 @@ async function main() {
     const held = await listHeldQuestionsToSend(PPT)
     check('"Send held questions" does not send the held part again', !held.some((h) => h.questionId === id('H1')), JSON.stringify(held))
   } finally {
+    await restoreBatchSwitch()
     await tearDown()
   }
   console.log(failed === 0 ? 'All checks passed' : `${failed} FAILED`)
@@ -270,5 +273,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error)
-  tearDown().finally(() => process.exit(1))
+  restoreBatchSwitch().catch(console.error).then(() => tearDown()).finally(() => process.exit(1))
 })

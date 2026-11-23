@@ -14,6 +14,7 @@ import {
 } from '@/lib/assessment-paper/question-model-route'
 import { ASSESSMENT_SCRIPTS_BUCKET } from '@/lib/assessment-paper/files'
 import { findOwnModelRoute, invalidateModelRouteCache, resolveModelRoute } from '@/lib/ai/model-routing'
+import { restoreBatchSwitch, turnBatchSwitchOff } from '../ai/batch-switch'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 import type { ModelJsonCall } from '@/lib/assessment-paper/reading'
 import type { ModelRequest } from '@/lib/ai/model-client'
@@ -60,6 +61,7 @@ type RouteRow = {
   model: string
   effort: string | null
   active: boolean
+  use_batch: boolean
   updated_at: string
   updated_by: string | null
 }
@@ -67,7 +69,7 @@ let original: RouteRow | null = null
 
 async function readTextRouteRow(): Promise<RouteRow | null> {
   const { rows } = await query<RouteRow>(
-    `select route_id::text, activity_type, sc_type, provider, model, effort, active, updated_at::text, updated_by
+    `select route_id::text, activity_type, sc_type, provider, model, effort, active, use_batch, updated_at::text, updated_by
        from ai_model_routes where activity_type = $1 and sc_type is null`,
     [ASSESSMENT_TEXT_ANSWER_SURFACE],
   )
@@ -78,10 +80,10 @@ async function restoreTextRoute() {
   if (!original) return
   await query('delete from ai_model_routes where activity_type = $1 and sc_type is null', [ASSESSMENT_TEXT_ANSWER_SURFACE])
   await query(
-    `insert into ai_model_routes (route_id, activity_type, sc_type, provider, model, effort, active, updated_at, updated_by)
-     values ($1::uuid, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9)`,
+    `insert into ai_model_routes (route_id, activity_type, sc_type, provider, model, effort, active, use_batch, updated_at, updated_by)
+     values ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10)`,
     [original.route_id, original.activity_type, original.sc_type, original.provider, original.model, original.effort,
-      original.active, original.updated_at, original.updated_by],
+      original.active, original.use_batch, original.updated_at, original.updated_by],
   )
   invalidateModelRouteCache()
 }
@@ -137,9 +139,11 @@ function captureModel(captured: ModelRequest[]): ModelJsonCall {
 }
 
 async function main() {
+  await turnBatchSwitchOff()
   original = await readTextRouteRow()
   if (!original || !original.active) {
     console.log('FAIL the surface:assessment-mark-text route row is missing or inactive; apply migration 149 first')
+    await restoreBatchSwitch()
     process.exit(1)
   }
   const textModel = original.model
@@ -351,6 +355,7 @@ async function main() {
     check('and text answers use it again', back.model === textModel)
   } finally {
     await restoreTextRoute()
+    await restoreBatchSwitch()
     await tearDown()
   }
 
@@ -362,6 +367,7 @@ main().catch(async (error) => {
   console.error(error)
   try {
     await restoreTextRoute()
+    await restoreBatchSwitch()
     await tearDown()
   } catch {}
   process.exit(1)

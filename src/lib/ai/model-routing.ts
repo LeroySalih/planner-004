@@ -26,6 +26,12 @@ export interface ModelChoice {
   model: string
   /** Anthropic only; ignored for google. */
   effort: AiEffort | null
+  /**
+   * Send by Message Batch (migration 152). True only on a BATCH_ROUTE_KEYS
+   * row whose provider is anthropic and whose switch is on; never on
+   * DEFAULT_ROUTE.
+   */
+  useBatch?: boolean
 }
 
 export interface CatalogueEntry extends ModelChoice {
@@ -241,6 +247,29 @@ export const MODEL_SURFACES: readonly ModelSurface[] = Object.freeze([
   },
 ])
 
+/**
+ * The route keys whose use_batch switch has effect (migration 152): the
+ * question-marked types' activity routes, and the surfaces of the paper's
+ * read and of the text-marking routes. Every other key ignores the switch,
+ * and so does a row whose provider is not anthropic.
+ */
+export const BATCH_ROUTE_KEYS: readonly string[] = Object.freeze([
+  "assessment-paper",
+  "powerpoint-assessment",
+  "database-assessment",
+  "surface:assessment-read",
+  "surface:assessment-mark-text",
+  "surface:powerpoint-mark-text",
+  "surface:database-mark-text",
+])
+
+/** Why the batch switch cannot be on for this key and provider, or null. */
+export function batchSwitchProblem(key: string, provider: string): string | null {
+  if (!BATCH_ROUTE_KEYS.includes(key)) return `${key} cannot be marked by batch.`
+  if (provider !== "anthropic") return "Only Claude models can be sent by batch."
+  return null
+}
+
 /** The surface a key names, or null when the key is an activity type. */
 export function findModelSurface(key: string): ModelSurface | null {
   return MODEL_SURFACES.find((surface) => surface.key === key) ?? null
@@ -291,7 +320,7 @@ async function loadRoutes(): Promise<Map<string, ModelChoice>> {
   const routes = new Map<string, ModelChoice>()
   try {
     const { rows } = await query(
-      `select route_id, activity_type, sc_type, provider, model, effort, active,
+      `select route_id, activity_type, sc_type, provider, model, effort, active, use_batch,
               updated_at::text as updated_at, updated_by
          from ai_model_routes
         where active`,
@@ -307,6 +336,7 @@ async function loadRoutes(): Promise<Map<string, ModelChoice>> {
         provider: route.provider,
         model: route.model,
         effort: route.effort,
+        useBatch: route.use_batch && route.sc_type === null && batchSwitchProblem(route.activity_type, route.provider) === null,
       })
     }
   } catch (error) {
@@ -359,7 +389,7 @@ export async function findOwnModelRoute(key: string): Promise<ModelChoice | null
 /** Every configured route, newest edit first. For the admin screen. */
 export async function listModelRoutes(): Promise<AiModelRoute[]> {
   const { rows } = await query(
-    `select route_id, activity_type, sc_type, provider, model, effort, active,
+    `select route_id, activity_type, sc_type, provider, model, effort, active, use_batch,
             updated_at::text as updated_at, updated_by
        from ai_model_routes
       order by activity_type, sc_type nulls first`,

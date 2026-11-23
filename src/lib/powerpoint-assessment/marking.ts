@@ -3,6 +3,7 @@ import "server-only"
 import { query } from "@/lib/db"
 import { callModelJson, defaultMarkingModel, type ModelPart } from "@/lib/ai/model-client"
 import { assertUncorruptedModelText } from "@/lib/ai/model-output-guard"
+import type { ModelUsage } from "@/lib/ai/model-usage"
 import type { ModelJsonCall } from "@/lib/assessment-paper/reading"
 import {
   MARK_RESPONSE_SCHEMA,
@@ -10,6 +11,7 @@ import {
   validateMarkReply,
   type MarkCriterion,
   type MarkReplyRow,
+  type ParkHook,
 } from "@/lib/assessment-paper/marking"
 import { ASSESSMENT_SCRIPTS_BUCKET } from "@/lib/assessment-paper/files"
 import {
@@ -46,8 +48,14 @@ import {
   type SlideImagesRead,
 } from "@/lib/powerpoint-assessment/reading"
 import { practicalTypeConfig, type PracticalAssessmentType } from "@/lib/practical-assessment/types"
+import {
+  markRequestHash,
+  readReusableMark,
+  storedResultAsReply,
+  type MarkRequestRecord,
+} from "@/lib/assessment-paper/mark-reuse"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
-import type { AiProvider, PracticalUploadSlot } from "@/types"
+import type { AiEffort, AiProvider, PracticalUploadSlot } from "@/types"
 
 // One marking call of a practical assessment (PowerPoint or database): one
 // question (part) of one pupil's hand-in, every criterion the question tests
@@ -68,6 +76,12 @@ import type { AiProvider, PracticalUploadSlot } from "@/types"
 //   evidence_section  the typed text and/or screenshots under one heading of
 //                     the evidence document;
 //   reference_file    the text of a teacher's activity file.
+//
+// The report sections (presentation and database) come first in the user turn,
+// before anything question-specific, so that a pupil's questions which select
+// the same sections send a byte-identical prefix and the Anthropic prompt
+// cache can serve it (see reportParts); the question's own text then names
+// which parts of the report above are its evidence.
 //
 // Every attachment is preceded by a label line naming it. Caps keep one call
 // within what a model takes; a question whose evidence is over them fails
@@ -98,6 +112,7 @@ export interface PowerPointMarkInput {
   questionId: string
   provider: AiProvider
   model: string
+  effort?: AiEffort | null
 }
 
 export interface PowerPointMarkingCallRecord {
@@ -108,13 +123,21 @@ export interface PowerPointMarkingCallRecord {
     prompt: string
     /** Attachment metadata only; base64 is never stored. */
     attachments: Array<{ label: string; fileName: string; mimeType: string; bytes: number }>
-    /** Each block of evidence text in the prompt, by key, with its length. */
+    /** Each block of evidence text in the prompt, by key, with its length (report sections first, as sent). */
     textSections: Array<{ key: string; chars: number }>
+    /** Prompt-cache breakpoints in the request (system text + report parts). */
+    cacheBreakpoints: number
     maxMarks: number
     questionId: string
     label: string
     scType: null
     criteria: Array<{ successCriteriaId: string; allocation: number }>
+    /** The request's fingerprint (mark-reuse.ts). */
+    requestHash: string
+    /** True when a stored answer to the same request was applied and the model was not called. */
+    reused?: true
+    /** The Message Batch it went by (message-batches.ts); absent on a direct call. */
+    batch?: { id: string; submittedAt: string }
   }
   response: {
     marksAwarded: number
@@ -124,6 +147,9 @@ export interface PowerPointMarkingCallRecord {
     /** The marker held the part for the teacher, with this reason. */
     holdForTeacher?: string
     raw: string
+    reused?: true
+    /** Token counts the provider reported (model-usage.ts); null when reused or not reported. */
+    usage: ModelUsage | null
   }
   durationMs: number
   attempts: number
@@ -202,6 +228,88 @@ export const MARK_TEXT: Readonly<Record<PracticalAssessmentType, { system: strin
 
 /** One block of evidence text in the prompt. */
 type TextBlock = { key: string; text: string }
+
+/**
+ * The sections of one pupil file's report (presentation or database) that a
+ * question's sources select, in the report's own order. They are sent before
+ * the question (reportParts), never inside its evidence list.
+ */
+export interface ReportEvidence {
+  kind: "presentation" | "database"
+  /** Its upload slot's key, and the slot's place in the activity's slots (the order reports are sent in). */
+  slot: string
+  slotIndex: number
+  /** The first line of the report's text, naming the slot and file (never the pupil's file name). */
+  heading: string
+  sections: Array<{ key: string; text: string; order: number }>
+}
+
+/** What a question's evidence list says of a report sent above it. */
+const REPORT_GIVEN_ABOVE = "given above, before this part (only these parts of the report are given)."
+
+/**
+ * The prompt-cache breakpoints in one practical mark request: one on the
+ * system text (shared by every question of every pupil of the type) and up to
+ * three in the report parts (MAX_CACHE_BREAKPOINTS is 4).
+ */
+const REPORT_BREAKPOINTS = 3
+
+/**
+ * The order of a presentation report's groups. Slides first, then the layout
+ * masters, then the slide masters, then the rest (presentation, action
+ * buttons, notes, supplied images, media, warnings), so that questions with
+ * overlapping section sets share the longest prefix: on dev's PowerPoint
+ * assessments "slides" is in most large sets ([master, layouts, slides],
+ * [master, slides], [layouts, slides], [slides], [slides, supplied-images])
+ * and layouts (about 11 500 characters) outweighs a master (about 1 600).
+ */
+const PRESENTATION_GROUPS = ["slides", "layouts", "master", "rest"] as const
+
+function presentationGroup(key: string): (typeof PRESENTATION_GROUPS)[number] {
+  if (key.startsWith("slide:")) return "slides"
+  if (key === "layouts") return "layouts"
+  if (key.startsWith("master:")) return "master"
+  return "rest"
+}
+
+/** One report's sections in the groups they are sent in, in that order. */
+export function reportGroups(report: ReportEvidence): ReportEvidence["sections"][] {
+  if (report.kind === "database") return report.sections.map((section) => [section])
+  return PRESENTATION_GROUPS
+    .map((group) => report.sections.filter((s) => presentationGroup(s.key) === group))
+    .filter((group) => group.length > 0)
+}
+
+/**
+ * The report parts of one mark request, sent after the system text and before
+ * anything question-specific: per report (in slot order) a heading, then its
+ * selected sections in groups, one text part per group. A presentation report
+ * has the groups of PRESENTATION_GROUPS, a database report one group per
+ * section in the report's order. Every group's text depends only on the
+ * pupil's file and the sections in it, never on the question, so two
+ * questions selecting the same sections send byte-identical parts, and two
+ * whose sets start alike share the parts up to where they differ.
+ *
+ * A cache breakpoint ends every group when there are at most
+ * REPORT_BREAKPOINTS; otherwise the first two groups and the last. A request
+ * reads the longest earlier-written prefix it shares, so an exact repeat is
+ * read whole and a set that starts alike reads its first groups.
+ */
+export function reportParts(reports: ReportEvidence[]): ModelPart[] {
+  const groups: string[] = []
+  for (const report of reports) {
+    reportGroups(report).forEach((group, i) => {
+      const heading = i === 0 ? `${report.heading}, the parts named under THE PUPIL'S EVIDENCE FOR THIS PART below:\n` : ""
+      groups.push(`${heading}${group.map((s) => s.text).join("\n\n")}\n\n`)
+    })
+  }
+  const cached = new Set(
+    groups.length <= REPORT_BREAKPOINTS
+      ? groups.map((_, i) => i)
+      : [0, 1, groups.length - 1],
+  )
+  return groups.map((text, i) => (cached.has(i) ? { text, cache: true as const } : { text }))
+}
 
 /** One attachment, before its bytes are loaded. */
 type PendingAttachment = {
@@ -294,10 +402,32 @@ async function assembleEvidence(input: {
   slots: PracticalUploadSlot[]
   files: PracticalFileRow[]
   evidence: StoredEvidence[]
-}): Promise<{ blocks: TextBlock[]; attachments: PendingAttachment[] }> {
+}): Promise<{ blocks: TextBlock[]; attachments: PendingAttachment[]; reports: ReportEvidence[] }> {
   const { question, answer } = input
   const blocks: TextBlock[] = []
   const attachments: PendingAttachment[] = []
+  const reports = new Map<string, ReportEvidence>()
+  // Two sources on one slot send that report once, their sections merged.
+  const addReport = (
+    kind: ReportEvidence["kind"],
+    slot: string,
+    heading: string,
+    sections: Array<{ key: string; text: string; order: number }>,
+  ) => {
+    const id = `${kind}:${slot}`
+    const report = reports.get(id) ?? {
+      kind,
+      slot,
+      slotIndex: input.slots.findIndex((s) => s.key === slot),
+      heading,
+      sections: [],
+    }
+    for (const section of sections) {
+      if (!report.sections.some((s) => s.key === section.key)) report.sections.push(section)
+    }
+    report.sections.sort((a, b) => a.order - b.order)
+    reports.set(id, report)
+  }
   const slotOf = (key: string) => input.slots.find((slot) => slot.key === key)
   const fileOf = (key: string) => input.files.find((file) => file.slot_key === key) ?? null
   const evidenceOf = (file: PracticalFileRow) => {
@@ -324,7 +454,10 @@ async function assembleEvidence(input: {
   for (const [index, source] of question.evidence.entries()) {
     await addSource(source, index)
   }
-  return { blocks, attachments }
+  const ordered = [...reports.values()]
+    .filter((report) => report.sections.length > 0)
+    .sort((a, b) => a.slotIndex - b.slotIndex || a.kind.localeCompare(b.kind))
+  return { blocks, attachments, reports: ordered }
 
   async function addSource(source: QuestionEvidence, index: number) {
     if (source.source === "reference_file") {
@@ -348,13 +481,15 @@ async function assembleEvidence(input: {
       const report = evidenceOf(file) as PresentationReport & { slideImages?: unknown }
       const selectors = presentationSections(source)
       const formatted = selectors.map(formatPresentationSection)
-      const sections = filterPresentationSections(describePresentationSections(report), formatted)
+      const all = describePresentationSections(report)
+      const sections = filterPresentationSections(all, formatted)
       const slideCount = report.presentation.slideCount
       const absent = selectors.flatMap((s) => s.slides ?? []).filter((n) => n > slideCount)
       const what = source.sections ? formatted.join(", ") : "every part but media"
+      const name = `PRESENTATION REPORT, ${slotLabel} (${markerFileName(file)})`
+      addReport("presentation", source.slot, name, sections.map((s) => ({ key: s.key, text: s.text, order: all.indexOf(s) })))
       const lines = [
-        `PRESENTATION REPORT, ${slotLabel} (${markerFileName(file)}), ${what}:`,
-        sections.length > 0 ? sections.map((s) => s.text).join("\n\n") : "(none of these parts is in the presentation)",
+        `${name}, ${what}: ${sections.length > 0 ? REPORT_GIVEN_ABOVE : "(none of these parts is in the presentation)"}`,
       ]
       if (absent.length > 0) {
         lines.push(`(${absent.length === 1 ? "slide" : "slides"} ${absent.join(", ")} ${absent.length === 1 ? "is" : "are"} not in this presentation, which has ${plural(slideCount, "slide")})`)
@@ -417,14 +552,22 @@ async function assembleEvidence(input: {
       const report = evidenceOf(file) as DatabaseEvidenceReport
       const formatted = databaseSections(source).map(formatDatabaseSection)
       // A named table or query the database does not have comes back as a
-      // block of its own saying so, with the names it does have.
-      const sections = filterDatabaseSections(describeDatabaseSections(report), formatted)
+      // block of its own saying so, with the names it does have: that is this
+      // question's own, so it stays in its evidence list.
+      const all = describeDatabaseSections(report)
+      const sections = filterDatabaseSections(all, formatted)
+      const found = sections.filter((s) => !s.absent)
+      const missing = sections.filter((s) => s.absent)
       const what = source.sections ? formatted.join(", ") : "every part but records"
+      const name = `DATABASE REPORT, ${slotLabel} (${markerFileName(file)})`
+      addReport("database", source.slot, name, found.map((s) => ({ key: s.selector, text: s.text, order: all.indexOf(s) })))
       blocks.push({
         key: `database:${source.slot}:${formatted.join(",")}`,
         text: [
-          `DATABASE REPORT, ${slotLabel} (${markerFileName(file)}), ${what}:`,
-          sections.length > 0 ? sections.map((s) => s.text).join("\n\n") : "(none of these parts is in the database)",
+          `${name}, ${what}: ${
+            found.length > 0 ? REPORT_GIVEN_ABOVE : missing.length > 0 ? "" : "(none of these parts is in the database)"
+          }`.trimEnd(),
+          ...missing.map((s) => s.text),
         ].join("\n"),
       })
       return
@@ -548,17 +691,44 @@ Base both comments on the mark scheme and the evidence only; never mention or qu
  * question is no longer to be sent (made teacher-only, or its mark scheme
  * removed, since the job was queued).
  */
-export async function markPowerPointQuestion(
-  input: PowerPointMarkInput,
-  call: ModelJsonCall = callModelJson,
-): Promise<{
+/** What the reply handler needs of a prepared practical mark request: JSON, so it can wait in a Message Batch item. */
+export interface PowerPointMarkContext {
+  provider: AiProvider
+  model: string
+  system: string
+  prompt: string
+  attachments: PowerPointMarkingCallRecord["request"]["attachments"]
+  textSections: PowerPointMarkingCallRecord["request"]["textSections"]
+  cacheBreakpoints: number
+  question: { questionId: string; label: string; maxMarks: number }
+  criteria: Array<{ successCriteriaId: string; allocation: number }>
+  requestHash: string
+}
+
+export type PowerPointMarkResult = {
   rows: QuestionCriterionMarkInput[]
   evidenceNote: string | null
   call: PowerPointMarkingCallRecord | null
   skipped: string | null
   /** The marker held the part for the teacher (an UNKNOWN value): no rows, this reason. */
   hold?: string | null
-}> {
+  /** The request and its validated result, to store once applied (mark-reuse.ts); null when not marked. */
+  markRequest?: MarkRequestRecord | null
+  /** The request waits in a Message Batch: nothing to apply yet. */
+  parked?: true
+}
+
+/**
+ * Mark one question of one hand-in. With `park`, a request that is not
+ * answered by a stored mark may be parked for a Message Batch instead of
+ * called; its reply later goes through finishPowerPointQuestionMark, as a
+ * direct reply does here.
+ */
+export async function markPowerPointQuestion(
+  input: PowerPointMarkInput,
+  call: ModelJsonCall = callModelJson,
+  options: { park?: ParkHook<PowerPointMarkContext> } = {},
+): Promise<PowerPointMarkResult> {
   const questions = await readAssessmentQuestions(input.activityId)
   const question = questions.find((q) => q.questionId === input.questionId)
   if (!question) throw new PermanentAssessmentMarkingError(`Question ${input.questionId} is not on this assessment.`)
@@ -607,7 +777,7 @@ export async function markPowerPointQuestion(
     allocation: Number(c.maxMarks),
   }))
 
-  const { blocks, attachments } = await assembleEvidence({
+  const { blocks, attachments, reports } = await assembleEvidence({
     question,
     answer,
     activityId: input.activityId,
@@ -617,7 +787,7 @@ export async function markPowerPointQuestion(
     evidence,
   })
 
-  const prompt = buildPowerPointMarkPrompt({
+  const questionPrompt = buildPowerPointMarkPrompt({
     question,
     criteria,
     instructions: body.instructions ?? null,
@@ -625,10 +795,13 @@ export async function markPowerPointQuestion(
     attachmentLabels: attachments.map((a) => a.label),
     evidenceNames: text.evidenceNames,
   })
+  // The reports first, then the question: the shared prefix (reportParts).
+  const shared = reportParts(reports)
+  const prompt = [...shared.map((part) => part.text), questionPrompt].join("")
   const promptChars = prompt.length + attachments.reduce((sum, a) => sum + a.label.length, 0)
   assertWithinCaps(question.label, attachments, promptChars, text.narrowHint)
 
-  const parts: ModelPart[] = [{ text: prompt }]
+  const parts: ModelPart[] = [...shared, { text: questionPrompt }]
   for (const attachment of attachments) {
     const data = await attachment.load()
     parts.push({ text: attachment.label })
@@ -636,14 +809,63 @@ export async function markPowerPointQuestion(
   }
 
   const model = input.model || defaultMarkingModel()
-  const reply = await call({
+  const request = {
     provider: input.provider,
     model,
     systemText: text.system,
+    cacheSystem: true,
     parts,
     responseSchema: POWERPOINT_MARK_RESPONSE_SCHEMA,
     timeoutMs: 180_000,
     maxTokens: 16000,
+  }
+  const allocations = criteria.map((c) => ({ successCriteriaId: c.successCriteriaId, allocation: c.allocation }))
+  const requestHash = markRequestHash({ ...request, effort: input.effort ?? null, criteria: allocations })
+  const context: PowerPointMarkContext = {
+    provider: input.provider,
+    model,
+    system: text.system,
+    prompt,
+    attachments: attachments.map((a) => ({ label: a.label, fileName: a.fileName, mimeType: a.mimeType, bytes: a.bytes })),
+    textSections: [
+      ...reports.flatMap((r) => reportGroups(r).flat().map((sec) => ({ key: `report:${r.kind}:${r.slot}:${sec.key}`, chars: sec.text.length }))),
+      ...blocks.map((b) => ({ key: b.key, chars: b.text.length })),
+    ],
+    cacheBreakpoints: 1 + shared.filter((part) => part.cache).length,
+    question: { questionId: question.questionId, label: question.label, maxMarks: question.maxMarks },
+    criteria: allocations,
+    requestHash,
+  }
+  // The same request already answered for this submission and question: its
+  // stored answer goes through the same checks as a fresh reply, no call.
+  const stored = await readReusableMark(input.submissionId, question.questionId, requestHash)
+  if (stored) {
+    return finishPowerPointQuestionMark(context, { data: storedResultAsReply(stored), raw: "", durationMs: 0, attempts: 0, usage: null }, { reused: true })
+  }
+  if (options.park && (await options.park({ request, requestHash, context }))) {
+    return { rows: [], evidenceNote: null, call: null, skipped: null, parked: true }
+  }
+  return finishPowerPointQuestionMark(context, await call(request))
+}
+
+/**
+ * The reply to a prepared practical mark request, direct, reused or from a
+ * Message Batch: the evidence note, the hold rule, the criteria checks and
+ * the output guard, then the rows to apply, the call record and the
+ * mark-reuse record. Throws on a bad reply, so the job retries.
+ */
+export function finishPowerPointQuestionMark(
+  context: PowerPointMarkContext,
+  reply: Awaited<ReturnType<ModelJsonCall>>,
+  options: { reused?: boolean } = {},
+): PowerPointMarkResult {
+  const { model, question, criteria } = context
+  const reused = options.reused === true
+  const markRequest = (result: MarkRequestRecord["result"]): MarkRequestRecord => ({
+    questionId: question.questionId,
+    requestHash: context.requestHash,
+    model,
+    result,
   })
 
   const rawNote = (reply.data as { evidence_note?: unknown } | null)?.evidence_note
@@ -654,17 +876,20 @@ export async function markPowerPointQuestion(
   const callRecord = (recorded: MarkReplyRow[], note: string, heldFor: string | null): PowerPointMarkingCallRecord => {
     return {
       request: {
-        provider: input.provider,
+        provider: context.provider,
         model,
-        system: text.system,
-        prompt,
-        attachments: attachments.map((a) => ({ label: a.label, fileName: a.fileName, mimeType: a.mimeType, bytes: a.bytes })),
-        textSections: blocks.map((b) => ({ key: b.key, chars: b.text.length })),
+        system: context.system,
+        prompt: context.prompt,
+        attachments: context.attachments,
+        textSections: context.textSections,
+        cacheBreakpoints: context.cacheBreakpoints,
         maxMarks: question.maxMarks,
         questionId: question.questionId,
         label: question.label,
         scType: null,
-        criteria: criteria.map((c) => ({ successCriteriaId: c.successCriteriaId, allocation: c.allocation })),
+        criteria,
+        requestHash: context.requestHash,
+        ...(reused ? { reused: true as const } : {}),
       },
       response: {
         marksAwarded: recorded.reduce((sum, row) => sum + row.awarded, 0),
@@ -672,6 +897,8 @@ export async function markPowerPointQuestion(
         evidenceNote: note,
         ...(heldFor !== null ? { holdForTeacher: heldFor } : {}),
         raw: reply.raw.slice(0, RAW_RESPONSE_LIMIT),
+        ...(reused ? { reused: true as const } : {}),
+        usage: reply.usage ?? null,
       },
       durationMs: reply.durationMs,
       attempts: reply.attempts,
@@ -690,6 +917,7 @@ export async function markPowerPointQuestion(
       evidenceNote: evidenceNote || null,
       skipped: null,
       hold,
+      markRequest: markRequest({ rows: [], evidenceNote, hold }),
       call: callRecord([], evidenceNote, hold),
     }
   }
@@ -710,6 +938,7 @@ export async function markPowerPointQuestion(
     evidenceNote: evidenceNote || null,
     skipped: null,
     hold: null,
+    markRequest: markRequest({ rows: replyRows, evidenceNote, hold: null }),
     call: callRecord(replyRows, evidenceNote, null),
   }
 }

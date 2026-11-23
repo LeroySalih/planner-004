@@ -21,6 +21,14 @@ import { parseSpreadsheet, type ParsedSheet } from "@/lib/spreadsheet/parse-xlsx
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 import { emitSubmissionEvent } from "@/lib/sse/topics";
 import { logQueueEvent } from "@/lib/ai/marking-log";
+import { runCacheStaggered } from "@/lib/ai/cache-warm-order";
+import {
+  hasOpenBatchWork,
+  pollOpenBatches,
+  releaseOverdueBatchItems,
+  submitParkedBatchItems,
+  type BatchJobResult,
+} from "@/lib/ai/message-batches";
 import { joinLabels } from "@/lib/utils";
 import { fetchCriterionForMarking } from "@/lib/scoring/success-criteria";
 import { isAssessmentPaperType, isPracticalAssessmentType, isQuestionMarkedActivityType } from "@/dino.config";
@@ -483,6 +491,18 @@ export async function enqueueAiMarkJob(
   );
 }
 
+/** Of these submissions, the ones of a practical assessment (PowerPoint or database). */
+async function practicalSubmissionIds(submissionIds: string[]): Promise<Set<string>> {
+  if (submissionIds.length === 0) return new Set();
+  const { rows } = await query<{ submission_id: string; type: string | null }>(
+    `select s.submission_id, a.type
+       from submissions s join activities a on a.activity_id = s.activity_id
+      where s.submission_id = any($1::text[])`,
+    [Array.from(new Set(submissionIds))],
+  );
+  return new Set(rows.filter((row) => isPracticalAssessmentType(row.type)).map((row) => row.submission_id));
+}
+
 export async function processNextQueueItem() {
   const BATCH_SIZE = 5;
 
@@ -591,9 +611,19 @@ export async function processNextQueueItem() {
     `Claimed batch of ${claimed.length} items for processing`,
   );
 
-  // 2. Process in parallel
-  const results = await Promise.allSettled(
-    claimed.map((item) => processSingleItem(item)),
+  // 2. Process in parallel, except that a practical assessment hand-in's mark
+  // jobs are staggered, each starting once the one before has begun its
+  // response, so they find the prompt cache warm (cache-warm-order.ts).
+  const practicalSubmissions = await practicalSubmissionIds(
+    rows.filter((row) => row.job_type === "ai_mark" && row.question_id).map((row) => row.submission_id),
+  );
+  const results = await runCacheStaggered(
+    claimed,
+    (item) =>
+      item.job_type === "ai_mark" && item.question_id && practicalSubmissions.has(item.submission_id)
+        ? item.submission_id
+        : null,
+    (item) => processSingleItem(item),
   );
 
   // 3. Check remaining
@@ -638,7 +668,11 @@ function parseActivityBody<T extends z.ZodType>(schema: T, body: unknown): z.inf
   );
 }
 
-/** Run one claimed job (status 'processing'). Exported for the checks; the worker claims through processNextQueueItem. */
+/**
+ * Run one claimed job (status 'processing'). Exported for the checks; the
+ * worker claims through processNextQueueItem. `options.batch`: the job's
+ * Message Batch result (runBatchTick), handled as its reply.
+ */
 export async function processSingleItem(
   item: {
     submission_id: string;
@@ -649,6 +683,7 @@ export async function processSingleItem(
     attempts: number;
     job_id: string;
   },
+  options: { batch?: BatchJobResult } = {},
 ) {
   const criterionId = item.success_criteria_id ?? null;
   const isAssessmentJob = item.job_type === "ai_read" || Boolean(item.question_id);
@@ -712,7 +747,7 @@ export async function processSingleItem(
         activityId: context.activity_id as string,
         pupilId: context.pupil_id as string,
         type: context.type as string,
-      });
+      }, options.batch);
       return;
     }
 
@@ -1170,19 +1205,24 @@ async function questionLabel(questionId: string): Promise<string> {
 async function processQuestionMarkedItem(
   item: { submission_id: string; assignment_id: string; question_id?: string | null; job_type?: string; job_id: string },
   context: { activityId: string; pupilId: string; type: string },
+  batch?: BatchJobResult,
 ) {
   // Loaded on demand: the jobs pull in the file stores and readers (sharp,
   // poppler, the Office readers), which every other importer of this queue
   // can do without.
   const practical = isPracticalAssessmentType(context.type) ? practicalTypeConfig(context.type) : null;
+  // A batch result is only ever for an assessment paper's read or a mark
+  // (message-batches.ts); a practical read has no model call.
+  const options = batch ? { batch } : {};
+  type Job = { jobId: string; submissionId: string; assignmentId: string };
   const { runMarkJob, runReadJob } = practical
     ? await import("@/lib/powerpoint-assessment/jobs").then((m) => ({
-      runReadJob: m.runPowerPointReadJob,
-      runMarkJob: m.runPowerPointMarkJob,
+      runReadJob: (job: Job) => m.runPowerPointReadJob(job),
+      runMarkJob: (job: Job & { questionId: string }) => m.runPowerPointMarkJob(job, undefined, options),
     }))
     : await import("@/lib/assessment-paper/jobs").then((m) => ({
-      runReadJob: m.runAssessmentReadJob,
-      runMarkJob: m.runAssessmentMarkJob,
+      runReadJob: (job: Job) => m.runAssessmentReadJob(job, undefined, options),
+      runMarkJob: (job: Job & { questionId: string }) => m.runAssessmentMarkJob(job, undefined, options),
     }));
 
   void emitSubmissionEvent("submission.updated", {
@@ -1195,6 +1235,7 @@ async function processQuestionMarkedItem(
   const job = { jobId: item.job_id, submissionId: item.submission_id, assignmentId: item.assignment_id };
   let outcome: { totals: { awarded: number; available: number; score: number } | null; complete: boolean };
   if (item.job_type === "ai_read") {
+    if (batch && practical) throw new PermanentMarkingError("A practical assessment's read is not sent by batch.");
     outcome = await runReadJob(job);
   } else if (item.question_id) {
     outcome = await runMarkJob({ ...job, questionId: item.question_id });
@@ -1322,6 +1363,12 @@ export async function pruneCompletedQueueItems() {
   );
 }
 
+/**
+ * Return jobs stuck in 'processing' (the worker died mid-run) to the queue.
+ * A job parked for a Message Batch (a model_batch_items row) is 'processing'
+ * for up to a day and is not stuck: it is skipped, and so is its submission
+ * while it is parked.
+ */
 export async function recoverStuckItems() {
   // Only reset a submission to 'waiting' once NO criterion job for it is still
   // progressing. With fan-out, one stalled criterion must not drag a submission
@@ -1330,15 +1377,17 @@ export async function recoverStuckItems() {
     `update submissions set mark_status='waiting'
      where mark_status='marking'
        and submission_id in (
-         select payload->>'submissionId' from external_jobs
-         where job_type in ('ai_mark','ai_read') and status='processing' and updated_at < now() - interval '10 minutes'
+         select j.payload->>'submissionId' from external_jobs j
+         where j.job_type in ('ai_mark','ai_read') and j.status='processing' and j.updated_at < now() - interval '10 minutes'
+           and not exists (select 1 from model_batch_items b where b.job_id = j.job_id)
        )
        and submission_id not in (
-         select payload->>'submissionId' from external_jobs
-         where job_type in ('ai_mark','ai_read')
+         select j.payload->>'submissionId' from external_jobs j
+         where j.job_type in ('ai_mark','ai_read')
            and (
-             status='pending'
-             or (status='processing' and updated_at >= now() - interval '10 minutes')
+             j.status='pending'
+             or (j.status='processing' and j.updated_at >= now() - interval '10 minutes')
+             or (j.status='processing' and exists (select 1 from model_batch_items b where b.job_id = j.job_id))
            )
        )`,
   );
@@ -1351,7 +1400,42 @@ export async function recoverStuckItems() {
        )`,
   );
   await query(
-    `update external_jobs set status='pending', updated_at=now()
-     where job_type in ('ai_mark','ai_read') and status='processing' and updated_at < now() - interval '10 minutes'`,
+    `update external_jobs j set status='pending', updated_at=now()
+     where j.job_type in ('ai_mark','ai_read') and j.status='processing' and j.updated_at < now() - interval '10 minutes'
+       and not exists (select 1 from model_batch_items b where b.job_id = j.job_id)`,
   );
+}
+
+/**
+ * One tick of Message Batches (message-batches.ts): parked items overdue go
+ * back to the direct path, every parked item is submitted (as many batches
+ * as the API's request and byte limits need), and due open batches are polled; each
+ * ended batch's results are handled as the jobs' replies, through
+ * processSingleItem, so a reply is checked, applied, retried or failed
+ * exactly as a direct one. Run by the batch driver (batch-driver.ts).
+ * Returns what it did; `wake` is true when jobs may now be waiting for the
+ * normal queue (a released job, or marks queued by a finished read).
+ */
+export async function runBatchTick(): Promise<{ submitted: number; handled: number; released: number; dropped: number; wake: boolean }> {
+  const result = { submitted: 0, handled: 0, released: 0, dropped: 0, wake: false };
+  if (!(await hasOpenBatchWork())) return result;
+
+  result.released += await releaseOverdueBatchItems();
+  for (;;) {
+    const { submitted } = await submitParkedBatchItems();
+    result.submitted += submitted;
+    if (submitted === 0) break;
+  }
+  const polled = await pollOpenBatches(async (job, batch) => {
+    try {
+      await processSingleItem(job, { batch });
+    } catch {
+      // processSingleItem has already put the job back for a (direct) retry, or failed it.
+    }
+  });
+  result.handled += polled.handled;
+  result.released += polled.released;
+  result.dropped += polled.dropped;
+  result.wake = result.handled + result.released > 0;
+  return result;
 }

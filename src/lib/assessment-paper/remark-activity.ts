@@ -4,6 +4,7 @@ import { query } from "@/lib/db"
 import { isAssessmentPaperType, isPracticalAssessmentType } from "@/dino.config"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import { markingAssignmentIdFor } from "@/lib/assessment-paper/files"
+import { forgetStoredMarks } from "@/lib/assessment-paper/mark-reuse"
 import { clearForReread, listQuestionsToRemark, remarkAssessmentQuestions, type RemarkCandidate } from "@/lib/assessment-paper/store"
 import { RESEND_FAILED_MESSAGE, practicalAssignmentIdFor } from "@/lib/powerpoint-assessment/files"
 
@@ -25,12 +26,21 @@ import { RESEND_FAILED_MESSAGE, practicalAssignmentIdFor } from "@/lib/powerpoin
 //              over every page and would redo every question's transcription.
 //              The questions are marked again from the stored transcriptions
 //              (remarkAssessmentQuestions, as after a mark scheme change).
+//
+// A question whose mark request is unchanged (same evidence, mark scheme,
+// criteria, model, prompt: mark-reuse.ts) gets its stored marks back with no
+// model call. `force` forgets the stored answers of the submissions (and
+// questions) sent, so every question sent is marked by a fresh call.
 
 /** What remark_assessment_activity did, or (dry run) would do. Pupil ids only, never names. */
 export type ActivityRemark = {
   activity_id: string
   type: string
   dry_run: boolean
+  /** Stored answers were forgotten: every question sent is marked by a fresh model call. */
+  force: boolean
+  /** With force: how many stored answers were forgotten (dry run: would be). */
+  stored_marks_forgotten: number
   /** The labels re-marked, in paper order, or null for every question. */
   questions: string[] | null
   /** Latest submissions cleared and sent to be read (or, paper with `questions`, marked) again (dry run: that would be). */
@@ -200,9 +210,12 @@ export async function remarkAssessmentActivity(input: {
   /** Only these questions (labels or ids); see the top of this file. Omitted or empty: every question. */
   questions?: string[] | null
   dryRun?: boolean
+  /** Forget stored answers, so unchanged questions are marked by a fresh call too. */
+  force?: boolean
 }): Promise<ActivityRemark> {
   const { activityId } = input
   const dryRun = input.dryRun ?? false
+  const force = input.force ?? false
   const { rows: activityRows } = await query<{ type: string | null; folded: boolean }>(
     `select type, coalesce(body_data::jsonb ? 'foldedFromAssessmentIds', false) as folded
        from activities where activity_id = $1`,
@@ -228,6 +241,8 @@ export async function remarkAssessmentActivity(input: {
     activity_id: activityId,
     type: activity.type as string,
     dry_run: dryRun,
+    force,
+    stored_marks_forgotten: 0,
     questions: named ? named.map((q) => q.label) : null,
     queued: 0,
     queued_pupil_ids: [],
@@ -259,7 +274,7 @@ export async function remarkAssessmentActivity(input: {
   }
 
   if (!practical && questionIds) {
-    await remarkPaperQuestions(result, activityId, eligible, questionIds, dryRun)
+    await remarkPaperQuestions(result, activityId, eligible, questionIds, dryRun, force)
     if (!dryRun && result.question_marks_queued > 0) void triggerQueueProcessor()
     return result
   }
@@ -267,6 +282,7 @@ export async function remarkAssessmentActivity(input: {
   if (dryRun) {
     result.queued_pupil_ids = eligible.map((row) => row.user_id)
     result.queued = eligible.length
+    if (force) result.stored_marks_forgotten = await countStoredMarks(eligible.map((row) => row.submission_id), questionIds)
     return result
   }
 
@@ -280,6 +296,8 @@ export async function remarkAssessmentActivity(input: {
       result.skipped[refusal].push(row.user_id)
       continue
     }
+    // Before the read is queued, so none of its mark jobs can find them.
+    if (force) result.stored_marks_forgotten += await forgetStoredMarks([row.submission_id], questionIds)
     try {
       const assignmentId = practical
         ? await practicalAssignmentIdFor(activityId, row.user_id)
@@ -323,6 +341,7 @@ async function remarkPaperQuestions(
   eligible: LatestRow[],
   questionIds: string[],
   dryRun: boolean,
+  force: boolean,
 ): Promise<void> {
   const answered = await submissionsWithAnswers(eligible.map((row) => row.submission_id), questionIds)
   const candidates = new Map<string, RemarkCandidate[]>()
@@ -343,8 +362,11 @@ async function remarkPaperQuestions(
         already_queued: mine.filter((c) => !c.teacherMarked && c.pending).length,
         teacher_marked: mine.filter((c) => c.teacherMarked).length,
       }
+      if (force) result.stored_marks_forgotten += await countStoredMarks([row.submission_id], questionIds)
     } else {
       try {
+        // Before the marks are queued, so none of their jobs can find them.
+        if (force) result.stored_marks_forgotten += await forgetStoredMarks([row.submission_id], questionIds)
         const remarked = await remarkAssessmentQuestions({
           activityId,
           submissionId: row.submission_id,
@@ -378,6 +400,18 @@ async function remarkPaperQuestions(
   result.queued = result.queued_pupil_ids.length
 }
 
+/** Stored answers (mark-reuse.ts) of these submissions, only `questionIds`' when given. */
+async function countStoredMarks(submissionIds: string[], questionIds: string[] | null): Promise<number> {
+  if (submissionIds.length === 0) return 0
+  const { rows } = await query<{ n: number }>(
+    `select count(*)::int as n from submission_question_mark_requests
+      where submission_id = any($1::text[])
+        and ($2::text[] is null or question_id::text = any($2::text[]))`,
+    [submissionIds, questionIds],
+  )
+  return rows[0]?.n ?? 0
+}
+
 /** One line for the tool's text result. */
 export function describeActivityRemark(r: ActivityRemark): string {
   const skipped = [
@@ -404,7 +438,13 @@ export function describeActivityRemark(r: ActivityRemark): string {
       : (r.dry_run ? `Dry run, nothing changed: would read again and mark ${labels} again for ${pupils}.` : `Reading again and marking ${labels} again for ${pupils}.`)
         + " Other questions are not changed."
   }
+  const reuse = r.queued === 0
+    ? ""
+    : r.force
+      ? ` Fresh model calls for every question (${r.stored_marks_forgotten} stored mark${r.stored_marks_forgotten === 1 ? "" : "s"} ${r.dry_run ? "would be " : ""}forgotten).`
+      : " Questions whose mark request is unchanged get their stored marks back with no model call (force: true makes fresh calls)."
   return action
+    + reuse
     + (skippedText ? ` Skipped: ${skippedText}.` : "")
     + (r.held.length > 0 ? ` Held: ${r.held.length}.` : "")
     + (r.failed.length > 0 ? ` Failed: ${r.failed.length}.` : "")

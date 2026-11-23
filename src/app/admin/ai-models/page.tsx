@@ -1,5 +1,5 @@
 import { readAiModelRoutesAction, readProviderKeyStatusAction } from '@/lib/server-updates'
-import { MODEL_CATALOGUE, MODEL_SURFACES, PRICING_AS_OF } from '@/lib/ai/model-routing'
+import { BATCH_ROUTE_KEYS, MODEL_CATALOGUE, MODEL_SURFACES, PRICING_AS_OF } from '@/lib/ai/model-routing'
 import { AI_MARKED_ACTIVITY_TYPES } from '@/dino.config'
 import { AiModelRouteManager, type CatalogueOption } from '@/components/admin/AiModelRouteManager'
 
@@ -49,6 +49,7 @@ export default async function AiModelsPage() {
         keyStatus={keyStatus ?? []}
         initialRoutes={routes ?? []}
         pricingAsOf={PRICING_AS_OF}
+        batchKeys={[...BATCH_ROUTE_KEYS]}
       />
     </div>
   )

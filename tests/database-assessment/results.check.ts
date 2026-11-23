@@ -32,6 +32,7 @@ import { runPowerPointMarkJob, runPowerPointReadJob } from '@/lib/powerpoint-ass
 import { defaultDatabaseAssessmentBody } from '@/lib/practical-assessment/types'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 import { AssessmentPaperFeedbackDocument } from '@/components/pdf/assessment-paper-feedback-document'
+import { restoreBatchSwitch, turnBatchSwitchOff } from '../ai/batch-switch'
 
 // A database assessment on the teacher's results page, in the pupil's
 // feedback and in the feedback PDFs. The Palm Grove Vets model answer and
@@ -170,7 +171,7 @@ async function claim(submissionId: string, jobType: 'ai_read' | 'ai_mark') {
 
 /** A fake model: each criterion's full allocation, and a note for the teacher. */
 const fakeModel: ModelJsonCall = async (request) => {
-  const prompt = request.parts[0]?.text ?? ''
+  const prompt = request.parts.find((part) => part.text?.startsWith('PART '))?.text ?? ''
   const label = /^PART (\S+) /.exec(prompt)?.[1] ?? '?'
   const criteria = [...prompt.matchAll(/success_criteria_id "([^"]+)" \(topic: [^)]*\): holds 0 to (\d+)\./g)].map((m) => ({
     success_criteria_id: m[1],
@@ -210,6 +211,7 @@ async function main() {
   )
   const [A, B] = scs.map((s) => s.success_criteria_id)
 
+  await turnBatchSwitchOff()
   await setUp()
   try {
     const lessons = createLocalStorageClient(LESSONS_BUCKET)
@@ -404,6 +406,7 @@ async function main() {
     check('a teacher resolves it: changed', resolved.resolved === 1 && !resolved.isFlagged && flags.get(d3Id)?.history[0]?.outcome === 'changed',
       JSON.stringify(flags.get(d3Id)))
   } finally {
+    await restoreBatchSwitch()
     await tearDown()
   }
 
@@ -423,5 +426,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error)
-  tearDown().finally(() => process.exit(1))
+  restoreBatchSwitch().catch(console.error).then(() => tearDown()).finally(() => process.exit(1))
 })

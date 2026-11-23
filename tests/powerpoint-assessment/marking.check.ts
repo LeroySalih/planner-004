@@ -24,6 +24,7 @@ import { runPowerPointMarkJob, runPowerPointReadJob } from '@/lib/powerpoint-ass
 import { MARK_MAX_IMAGES, POWERPOINT_MARK_SYSTEM } from '@/lib/powerpoint-assessment/marking'
 import { SLIDE_IMAGE_MAX_SIDE, type PowerPointReaders } from '@/lib/powerpoint-assessment/reading'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
+import { restoreBatchSwitch, turnBatchSwitchOff } from '../ai/batch-switch'
 
 // The mark of a PowerPoint assessment (the ai_mark jobs), with the model call
 // stubbed (never a real one): a hand-in is read (slides rendered by
@@ -184,7 +185,7 @@ type Captured = { request: ModelRequest; label: string }
 /** A stub model: captures the request and replies with each criterion's full allocation (or the override). */
 function stubModel(captured: Captured[], award: (label: string, criterionId: string, allocation: number) => number) {
   const call: ModelJsonCall = async (request) => {
-    const prompt = request.parts[0]?.text ?? ''
+    const prompt = request.parts.find((part) => part.text?.startsWith('PART '))?.text ?? ''
     const label = /^PART (\S+) /.exec(prompt)?.[1] ?? '?'
     captured.push({ request, label })
     const criteria = [...prompt.matchAll(/success_criteria_id "([^"]+)" \(topic: [^)]*\): holds 0 to (\d+)\./g)].map((m) => ({
@@ -202,7 +203,7 @@ function stubModel(captured: Captured[], award: (label: string, criterionId: str
 const textOf = (request: ModelRequest) => request.parts.filter((part) => part.text !== undefined).map((part) => part.text).join('\n')
 /** The evidence part of the prompt (between its heading and the marking instructions). */
 const evidenceText = (request: ModelRequest) => {
-  const prompt = request.parts[0]?.text ?? ''
+  const prompt = request.parts.find((part) => part.text?.startsWith('PART '))?.text ?? ''
   const start = prompt.indexOf('\n', prompt.indexOf("THE PUPIL'S EVIDENCE FOR THIS PART"))
   return prompt.slice(start, prompt.indexOf('First write the evidence_note'))
 }
@@ -223,6 +224,7 @@ async function main() {
   )
   const [A, B] = scs.map((s) => s.success_criteria_id)
 
+  await turnBatchSwitchOff()
   await setUp()
   try {
     const lessons = createLocalStorageClient(LESSONS_BUCKET)
@@ -376,7 +378,7 @@ async function main() {
       Object.keys((captured[0]?.request.responseSchema as any)?.properties ?? {}).join(','))
     check('the prompt decides point by point, every condition and do-not-accept clause, note first',
       captured.every((c) => {
-        const prompt = c.request.parts[0]?.text ?? ''
+        const prompt = c.request.parts.find((part) => part.text?.startsWith('PART '))?.text ?? ''
         return prompt.indexOf('First write the evidence_note') > prompt.indexOf("THE PUPIL'S EVIDENCE FOR THIS PART")
           && prompt.includes('every "Check / do not accept" clause')
           && /earned only when every condition is met and no do-not-accept clause applies/.test(prompt)
@@ -392,7 +394,9 @@ async function main() {
 
     const p1 = req('P1')!
     check('presentation part: its slide only', /^SLIDE 3 \(/m.test(textOf(p1)) && !/^SLIDE 1 \(/m.test(textOf(p1)) && !/^SLIDE MASTER/m.test(textOf(p1)), textOf(p1).slice(0, 400))
-    check('…labelled, with no attachments', /PRESENTATION REPORT, Presentation \(deck\.pptx\), slides:3:/.test(textOf(p1)) && inline(p1).length === 0)
+    check('…labelled, with no attachments', /PRESENTATION REPORT, Presentation \(deck\.pptx\), slides:3: given above/.test(evidenceText(p1))
+      && /^PRESENTATION REPORT, Presentation \(deck\.pptx\), the parts named under THE PUPIL'S EVIDENCE FOR THIS PART below:\nSLIDE 3 \(/.test(p1.parts[0]?.text ?? '')
+      && inline(p1).length === 0, textOf(p1).slice(0, 300))
     check('…and nothing else of the work', !/FILE |EVIDENCE |REFERENCE FILE|PRINTOUT|SLIDE PICTURES/.test(evidenceText(p1)), evidenceText(p1).slice(0, 300))
 
     const f1 = req('F1')!
@@ -420,7 +424,8 @@ async function main() {
     } else {
       check('slide part: the not-available note and no pictures', inline(v1).length === 0 && /Rendered slides are not available/.test(textOf(v1)))
     }
-    check('…with slide 1\'s report', /^SLIDE 1 \(layout/m.test(evidenceText(v1)) && !/^SLIDE 2 \(layout/m.test(evidenceText(v1)))
+    check('…with slide 1\'s report', /^SLIDE 1 \(layout/m.test(textOf(v1)) && !/^SLIDE 2 \(layout/m.test(textOf(v1))
+      && /PRESENTATION REPORT, Presentation \(deck\.pptx\), slides:1: given above/.test(evidenceText(v1)), evidenceText(v1))
 
     const r1 = req('R1')!
     check('reference part: the reference file\'s text', textOf(r1).includes(`REFERENCE FILE ${REFERENCE_FILE} (the teacher's material given to the pupil, not the pupil's work):\n${BRIEF}`))
@@ -465,11 +470,12 @@ async function main() {
       && f1Row.attachments[0].label === 'FILE Printout (printout.pdf, 2 pages):' && f1Row.attachments[0].mimeType === 'application/pdf'
       && f1Row.attachments[0].bytes === printout.byteLength && f1Row.attachments[0].fileName === 'printout.pdf', JSON.stringify(f1Row?.attachments))
     const p1Row = markRows.find((r) => r.model_request.label === 'P1')
-    check('…and text sections by key', p1Row?.model_request.textSections?.length === 1
-      && p1Row.model_request.textSections[0].key === 'presentation:deck:slides:3' && p1Row.model_request.textSections[0].chars > 50,
+    check('…and text sections by key', p1Row?.model_request.textSections?.length === 2
+      && p1Row.model_request.textSections[0].key === 'report:presentation:deck:slide:3' && p1Row.model_request.textSections[0].chars > 50
+      && p1Row.model_request.textSections[1].key === 'presentation:deck:slides:3',
       JSON.stringify(p1Row?.model_request.textSections))
     check('…the provider, model, system, prompt and criteria', Boolean(p1Row?.model_request.provider && p1Row.model_request.model
-      && p1Row.model_request.system === POWERPOINT_MARK_SYSTEM && p1Row.model_request.prompt.startsWith('PART P1 ')
+      && p1Row.model_request.system === POWERPOINT_MARK_SYSTEM && p1Row.model_request.prompt.includes('\nPART P1 ')
       && p1Row.model_request.criteria.length === 2 && p1Row.model_request.questionId))
     check('…and the reply, with the note', p1Row?.model_response.marksAwarded === 1 && p1Row.model_response.evidenceNote === NOTE('P1')
       && typeof p1Row.model_response.raw === 'string' && p1Row.model_response.raw.length <= 4000)
@@ -518,6 +524,7 @@ async function main() {
     })
     check('a presentation whose slides were not rendered is read again', inspected === 1 && renderCalls === 1, JSON.stringify({ inspected, renderCalls }))
   } finally {
+    await restoreBatchSwitch()
     await tearDown()
   }
 
@@ -537,5 +544,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error)
-  tearDown().finally(() => process.exit(1))
+  restoreBatchSwitch().catch(console.error).then(() => tearDown()).finally(() => process.exit(1))
 })
