@@ -99,7 +99,7 @@ A JWT, header `{ alg: "RS256", typ: "at+jwt", kid }` (RFC 9068), built by
 | `client_id` | the OAuth client |
 | `scope` | granted scopes, space separated (`""` if none) |
 | `roles` | lowercase role ids by the same rule as a DINO session (`effectiveRoles` in `src/lib/roles.ts`): every `user_roles` row, `teacher` for the legacy `is_teacher` flag, `["pupil"]` if there are none. An admin usually also has `teacher` and `pupil`, so Kerf should rank them. |
-| `groups` | only with the `groups` scope: `[{ "id": group_id }]` for the user's **active** class memberships, which can span school years and subjects |
+| `groups` | only with the `groups` scope: `[{ "id": group_id }]` for the user's **active** class memberships (`group_membership` rows only), which can span school years and subjects. Fixed at issue. A teacher's timetable classes are not in the claim; read them, with their pupils, from `GET /oauth/groups`. |
 
 Never a name or email: tokens end up in browser storage, headers and proxy
 logs.
@@ -121,6 +121,7 @@ That is why it lives 15 minutes. Do not lengthen it to compensate.
 | `GET /.well-known/oauth-authorization-server` | adds `jwks_uri`, `userinfo_endpoint`, `revocation_endpoint`, `scopes_supported`, `access_token_signing_alg_values_supported` |
 | `GET /oauth/jwks` | `{ keys: [{ kty, n, e, use: "sig", alg: "RS256", kid }] }`, current key plus previous during a rotation. `Cache-Control: public, max-age=300`. CORS `*`. |
 | `GET /oauth/userinfo` | `Authorization: Bearer <JWT>`. `{ sub, roles }`, read live; with `profile`, `name` and, for teachers and admins only, `email`. Never email for a pupil. Display only: Kerf must not store them. 401 with `WWW-Authenticate: Bearer error="invalid_token"` for a bad, expired or revoked token. |
+| `GET /oauth/groups` | `Authorization: Bearer <JWT>`, checked as userinfo checks it (signature, RS256, `typ at+jwt`, `iss`, `exp`, `token_use: "user"`; live: connection not revoked, client enabled and not pending approval, user active). A service token is refused. Needs the `groups` scope, else 403 `{"error":"insufficient_scope"}` with `WWW-Authenticate: Bearer error="insufficient_scope", scope="groups"`. Roles are read **live** (`effectiveRoles`), not from the JWT: only `teacher` or `admin`, else 403 `{"error":"forbidden"}`. A bad, expired or revoked token is 401 as for userinfo. The caller's groups are the union of their `group_membership` rows and their timetable (`timetable_slot_groups.teacher_id`), active groups only; an admin gets the same, not every group. 200, `Cache-Control: no-store`, a JSON array sorted by id: `[{ "id", "name", "subject", "year_group", "pupils" }]`, where `name` equals `id` (DINO has no class name), `subject` and `year_group` may be null, and `pupils` is the sorted user ids of members whose profile is active and who are neither teacher nor admin. Never names or emails. `[]` when the caller has no groups. |
 | `POST /oauth/revoke` | RFC 7009, form body `token`, `client_id`, optional `token_type_hint`. Always 200. |
 
 All `/oauth/*` endpoints allow any origin; none take cookies.

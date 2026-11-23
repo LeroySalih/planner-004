@@ -724,17 +724,18 @@ export type Userinfo = {
 }
 
 /**
- * GET /oauth/userinfo for a first-party access JWT, or null (→ 401). Checks
- * the signature, issuer and expiry, and that its connection (`sid`) has not
- * been revoked. Read live, so a role change shows before the next refresh.
- * Name and email only with the `profile` scope, and email never for a pupil.
+ * A first-party user access JWT, checked as every resource endpoint here
+ * checks it: signature, RS256, typ at+jwt, issuer, expiry, token_use "user"
+ * (so a service token is refused), and, read live, that its connection
+ * (`sid`) is not revoked, its client is enabled and approved, and its user
+ * is active. Returns the claims and the user's profile row, or null (→ 401).
  */
-export async function readUserinfo(token: string, issuer: string): Promise<Userinfo | null> {
+async function verifyUserAccessToken(token: string, issuer: string, endpoint: string) {
   let claims: AccessTokenClaims | null
   try {
     claims = await verifyAccessJwt(token, { issuer })
   } catch (error) {
-    console.error("[oauth] userinfo could not load the signing keys", error)
+    console.error(`[oauth] ${endpoint} could not load the signing keys`, error)
     return null
   }
   if (!claims) return null
@@ -752,13 +753,25 @@ export async function readUserinfo(token: string, issuer: string): Promise<Useri
      join oauth_clients c on c.client_id = t.client_id
      join profiles p on p.user_id = t.user_id
      where t.id = $1 and t.client_id = $2 and t.user_id = $3 and t.revoked_at is null
-       and c.disabled_at is null`,
+       and c.disabled_at is null and not c.pending_approval
+       and p.active`,
     [claims.sid, claims.client_id, claims.sub],
   )
   const row = rows[0]
   if (!row) return null
+  return { claims, row, roles: effectiveRoles(row.roles ?? [], Boolean(row.is_teacher)) }
+}
 
-  const roles = effectiveRoles(row.roles ?? [], Boolean(row.is_teacher))
+/**
+ * GET /oauth/userinfo for a first-party access JWT, or null (→ 401).
+ * Read live, so a role change shows before the next refresh.
+ * Name and email only with the `profile` scope, and email never for a pupil.
+ */
+export async function readUserinfo(token: string, issuer: string): Promise<Userinfo | null> {
+  const verified = await verifyUserAccessToken(token, issuer, "userinfo")
+  if (!verified) return null
+  const { claims, row, roles } = verified
+
   const info: Userinfo = { sub: claims.sub, roles }
   if (claims.scope.split(" ").includes("profile")) {
     const name = [row.first_name, row.last_name].filter(Boolean).join(" ")
@@ -766,6 +779,64 @@ export async function readUserinfo(token: string, issuer: string): Promise<Useri
     if (row.email && (roles.includes("teacher") || roles.includes("admin"))) info.email = row.email
   }
   return info
+}
+
+export type KerfGroup = {
+  id: string
+  name: string
+  subject: string | null
+  year_group: number | null
+  pupils: string[]
+}
+
+export type KerfGroupsResult =
+  | { status: "invalid_token" }
+  | { status: "insufficient_scope" }
+  | { status: "forbidden" }
+  | { status: "ok"; groups: KerfGroup[] }
+
+/**
+ * GET /oauth/groups: the caller's own active classes with their pupils' user
+ * ids. Needs the `groups` scope and, read live, the teacher or admin role.
+ * A caller's classes are those they are a member of plus those on their
+ * timetable; an admin gets the same, not every class. A pupil is a member
+ * whose profile is active and who is neither teacher nor admin.
+ */
+export async function readKerfGroups(token: string, issuer: string): Promise<KerfGroupsResult> {
+  const verified = await verifyUserAccessToken(token, issuer, "groups")
+  if (!verified) return { status: "invalid_token" }
+  if (!verified.claims.scope.split(" ").includes("groups")) return { status: "insufficient_scope" }
+  if (!verified.roles.includes("teacher") && !verified.roles.includes("admin")) return { status: "forbidden" }
+
+  const userId = verified.claims.sub
+  const { rows } = await query<{ group_id: string; subject: string | null; year_group: number | null; pupils: string[] | null }>(
+    `select g.group_id, g.subject, g.year_group,
+            (select array_agg(distinct m.user_id collate "C" order by m.user_id collate "C")
+             from group_membership m
+             join profiles p on p.user_id = m.user_id and p.active
+             where m.group_id = g.group_id
+               and not ${hasAnyEffectiveRoleSql("m.user_id", "array['teacher', 'admin']::text[]")}) as pupils
+     from groups g
+     where g.active is not false
+       and g.group_id in (
+         select gm.group_id from group_membership gm where gm.user_id = $1
+         union
+         select ts.group_id from timetable_slot_groups ts where ts.teacher_id = $1 and ts.group_id is not null
+       )
+     order by g.group_id collate "C"`,
+    [userId],
+  )
+  console.info("[oauth] groups read", { sub: userId, groups: rows.length })
+  return {
+    status: "ok",
+    groups: rows.map((row) => ({
+      id: row.group_id,
+      name: row.group_id,
+      subject: row.subject,
+      year_group: row.year_group,
+      pupils: row.pupils ?? [],
+    })),
+  }
 }
 
 export async function listConnectedApps(userId: string): Promise<ConnectedApp[]> {

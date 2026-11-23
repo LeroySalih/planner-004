@@ -29,7 +29,7 @@ export function oauthPreflight(): NextResponse {
   return new NextResponse(null, { status: 204, headers: POST_HEADERS })
 }
 
-/** For the GET endpoints (jwks, userinfo). */
+/** For the GET endpoints (jwks, userinfo, groups). */
 export function oauthGetJson(body: object, status = 200, extraHeaders: Record<string, string> = {}): NextResponse {
   return NextResponse.json(body, { status, headers: { ...GET_HEADERS, ...extraHeaders } })
 }

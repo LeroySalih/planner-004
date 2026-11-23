@@ -7,6 +7,7 @@ its store functions and over HTTP, and never forge a browser session.
 |---|---|---|
 | `unit.check.ts` | nothing | JWT signing/verification, service tokens, client validation rules |
 | `kerf-signin.check.ts` | dev DB + dev server | Kerf sign-in end to end, MCP alongside it, `MCP_SERVICE_KEY` |
+| `groups-endpoint.check.ts` | dev DB | `GET /oauth/groups` (route called in-process): which groups, pupils, scope, live roles, refusals |
 | `project-keys.check.ts` | dev DB + dev server | project API keys, the ceiling, approval, audit, client_credentials |
 
 Run against a **dev** database and a dev server built from the same code, with
