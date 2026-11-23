@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, ShieldAlert, CalendarDays, GraduationCap, BookOpen, ClipboardList, Cpu, CalendarRange, KeyRound, BarChart3, HardDriveDownload } from "lucide-react"
+import { Users, ShieldAlert, CalendarDays, GraduationCap, BookOpen, ClipboardList, Cpu, CalendarRange, KeyRound, BarChart3, HardDriveDownload, Mail } from "lucide-react"
 
 export default function AdminDashboard() {
   return (
@@ -170,6 +170,18 @@ export default function AdminDashboard() {
           <CardContent>
             <div className="text-2xl font-bold">Back up now</div>
             <p className="text-xs text-muted-foreground">Back up the databases and send them to the dev server</p>
+          </CardContent>
+        </Card>
+      </Link>
+      <Link href="/admin/email">
+        <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Email</CardTitle>
+            <Mail className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">Send a test</div>
+            <p className="text-xs text-muted-foreground">Check the Gmail settings DINO sends email with</p>
           </CardContent>
         </Card>
       </Link>

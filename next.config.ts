@@ -64,6 +64,11 @@ const nextConfig: NextConfig = {
         source: "/((?!api/activity-webpage/).*)",
         headers: securityHeaders,
       },
+      {
+        // The page's URL holds a password reset token: send it nowhere.
+        source: "/reset-password",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
   images: {

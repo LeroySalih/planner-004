@@ -277,7 +277,7 @@ async function loadSessionProfile(refreshSessionCookie = false): Promise<Authent
   // the session sends them to /change-password instead.
   if (profile.mustChangePassword) {
     const here = (await headers()).get("x-pathname") ?? ""
-    if (here.split("?")[0] !== CHANGE_PASSWORD_PATH) {
+    if (!MUST_CHANGE_PASSWORD_ALLOWED_PATHS.has(here.split("?")[0])) {
       // Carry on to the same place afterwards, e.g. an OAuth sign-in for Kerf.
       const back = here.startsWith("/") && !here.startsWith("//") && !here.startsWith("/api/") ? here : ""
       redirect(back ? `${CHANGE_PASSWORD_PATH}?returnTo=${encodeURIComponent(back)}` : CHANGE_PASSWORD_PATH)
@@ -288,6 +288,8 @@ async function loadSessionProfile(refreshSessionCookie = false): Promise<Authent
 }
 
 export const CHANGE_PASSWORD_PATH = "/change-password"
+// A reset link also sets a password of their own, so it must still open.
+const MUST_CHANGE_PASSWORD_ALLOWED_PATHS = new Set([CHANGE_PASSWORD_PATH, "/forgot-password", "/reset-password"])
 
 export async function getProfileFromSessionCookie(
   rawSessionCookie: string | undefined | null,

@@ -53,6 +53,7 @@ MIGRATIONS=(
   "150-practical-text-question-routes.sql|select exists (select 1 from ai_model_routes where activity_type = 'surface:powerpoint-mark-text')"
   "151-question-mark-reuse.sql|select exists (select 1 from information_schema.tables where table_name = 'submission_question_mark_requests')"
   "152-model-batches.sql|select exists (select 1 from information_schema.columns where table_name = 'ai_model_routes' and column_name = 'use_batch')"
+  "153-password-reset-tokens.sql|select exists (select 1 from information_schema.tables where table_name = 'password_reset_tokens')"
 )
 
 YES=false

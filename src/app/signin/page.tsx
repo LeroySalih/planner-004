@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { readPublicLessonsAction } from "@/lib/server-updates"
+import { passwordResetAvailable } from "@/lib/password-reset"
 import { PublicLessonBrowser } from "@/components/public/PublicLessonBrowser"
 
 export const metadata: Metadata = {
@@ -9,12 +10,17 @@ export const metadata: Metadata = {
 export default async function SigninPage({
   searchParams,
 }: {
-  searchParams: Promise<{ returnTo?: string }>
+  searchParams: Promise<{ returnTo?: string; reset?: string }>
 }) {
-  const { returnTo } = await searchParams
+  const { returnTo, reset } = await searchParams
   const { data: lessons } = await readPublicLessonsAction()
 
   return (
-    <PublicLessonBrowser lessons={lessons ?? []} returnTo={returnTo} />
+    <PublicLessonBrowser
+      lessons={lessons ?? []}
+      returnTo={returnTo}
+      showForgotPassword={passwordResetAvailable()}
+      notice={reset === "done" ? "Your password is changed. Sign in with your new password." : undefined}
+    />
   )
 }

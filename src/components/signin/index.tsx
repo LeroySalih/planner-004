@@ -19,7 +19,7 @@ function isValidReturnTo(url: string | undefined): url is string {
   return typeof url === "string" && url.startsWith("/") && !url.startsWith("//")
 }
 
-export function SigninForm({ returnTo }: { returnTo?: string }) {
+export function SigninForm({ returnTo, showForgotPassword }: { returnTo?: string; showForgotPassword?: boolean }) {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -99,6 +99,11 @@ export function SigninForm({ returnTo }: { returnTo?: string }) {
           onChange={(event) => setPassword(event.target.value)}
           required
         />
+        {showForgotPassword ? (
+          <Link href="/forgot-password" className="text-sm text-primary underline-offset-4 hover:underline">
+            Forgot password?
+          </Link>
+        ) : null}
       </div>
 
       {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}

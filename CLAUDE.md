@@ -111,6 +111,7 @@ Custom session-based auth (not Supabase Auth):
 - Role-based access control stored in database, checked via helper functions
 - Bcrypt password hashing with cost factor 10
 - **Default password must be changed.** `profiles.must_change_password` (migration 118) is set when a teacher resets a password to the default, when anyone signs in with the default password, and by the migration for accounts still on the column's default hash. While it is set, `getAuthenticatedProfile` redirects every page, action and route to `/change-password`. Setting a password of your own clears it, and the default is refused. The default lives in `src/lib/default-password.ts`.
+- **Forgot password** by an emailed one-time link: see *Forgot password* under *Email*.
 
 ### Client/Server Boundaries
 
@@ -1066,6 +1067,79 @@ One-time install on prod (after `scripts/migrate.sh` has applied 145):
 ```
 * * * * * ~/planner-004/scripts/backup-on-request.sh >> ~/planner-004/backups/request.log 2>&1
 ```
+
+## Email
+
+DINO sends email by SMTP through the owner's Gmail account
+(`src/lib/email/mailer.ts`, `nodemailer`). `sendEmail({to, subject, text, html?},
+{purpose})` sends to **one** address and returns `{messageId}`; it throws
+`EmailNotConfiguredError` (settings missing), `InvalidRecipientError` or
+`EmailSendError`, whose message is plain and safe to show (bad password / App
+Password needed, port blocked, host not found, daily limit) and built from
+SMTP codes only. A send logs one `[email]` line with the recipient's domain,
+the purpose and the result: never the address, the body or the password.
+`emailConfigStatus()` reports the settings without the password. Port 465 uses
+SSL; any other port must upgrade with STARTTLS (`requireTLS`), so nothing is
+sent in clear. Timeouts are 15 s (connect, greeting) and 20 s (socket), so a
+blocked port fails fast.
+
+Settings, all in `.env`, all optional (the app boots without them; not in
+`required-env.ts`); restart the app after a change:
+
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587            # default 587
+SMTP_USER=               # the full Gmail address
+SMTP_PASSWORD=           # a Gmail App Password, not the account password
+MAIL_FROM=               # default "DINO <SMTP_USER>"
+```
+
+Gmail App Password: turn on 2-Step Verification on the account (Google
+Account > Security), then Security > 2-Step Verification > App passwords,
+create one and copy the 16 letters (spaces are ignored). Gmail answers
+`535 5.7.8` when the account password is used instead.
+
+Limits: Gmail sends about 500 recipients a day from a personal account (about
+2,000 from Workspace); the sender is always the Gmail address, whatever
+`MAIL_FROM` says; school spam filters may file the mail as junk; prod must
+reach `smtp.gmail.com:587` outbound.
+
+`/admin/email` (admin only) shows the settings (password set yes/no) and sends
+a test email (subject *DINO test email*, the time in `TIMEZONE`, the admin's
+first name) to any one address, prefilled with the admin's own;
+`sendTestEmailAction` allows 5 per admin per 10 minutes (in memory). Tests:
+`tests/email/mailer.check.ts` (fake transport, no network, no nodemailer
+needed). Adding `nodemailer` means the app images (`Dockerfile-dino`,
+`dino-deps`) need a rebuild.
+
+### Forgot password
+
+`/forgot-password` and `/reset-password?token=…` are public
+(`src/lib/password-reset.ts`, actions in `server-actions/password-reset.ts`,
+migration 153 `password_reset_tokens`). The sign-in page shows *Forgot
+password?* only when `passwordResetAvailable()`: SMTP set up and a link origin
+(`APP_ORIGIN`, else `NEXT_PUBLIC_APP_URL`; never the Host header). Without it
+the forgot page says to ask a teacher. An active account with an email
+(lookup by `lower(email)`) gets *Reset your DINO password* with a link that
+works for 30 minutes and once. Only the token's sha256 is stored; the raw
+token is only in the email. The page **always** gives the same reply
+(`FORGOT_PASSWORD_MESSAGE`), for an unknown, inactive or limited address and
+when mail fails, and the action does not wait for the SMTP send, so the time
+does not tell either. An unknown address still writes a row (`user_id` null,
+a token nobody gets) so the IP limit counts it. Limits, read from the table so
+every PM2 process agrees: 3 requests per account and 10 per IP
+(`x-forwarded-for`) an hour; over a limit, no row and no email. A new request
+does not cancel an earlier link. The reset uses the change-password rules
+(trimmed, at least 6 characters, not the default) and checks the token again
+in the action; in one transaction it sets the hash (bcrypt 10), clears
+`must_change_password`, marks the token used, deletes the account's other
+tokens and ends all its `auth_sessions`, then sends the user to
+`/signin?reset=done` (not signed in). `Referrer-Policy: no-referrer` on
+`/reset-password` (`next.config.ts`). Both pages stay open to a signed-in user
+with `must_change_password`. Log lines carry the user id (or "no account") and
+IP, never the address. Rows older than 7 days are deleted by the next request.
+OAuth tokens (MCP, Kerf) are not revoked by a reset. Tests:
+`tests/auth/password-reset.check.ts`.
 
 ## Scoring Conventions
 

@@ -545,3 +545,7 @@ export { readLessonUnderstandingAction, recordLessonUnderstandingAction } from '
 
 export { readBackupRequestsAction, requestBackupAction } from './server-actions/backups'
 export type { BackupRequest, BackupFile, BackupRequestStatus } from './backups/store'
+
+export { sendTestEmailAction } from './server-actions/email'
+export { requestPasswordResetAction, resetPasswordAction } from './server-actions/password-reset'
+export type { ForgotPasswordState, ResetPasswordState } from './server-actions/password-reset'

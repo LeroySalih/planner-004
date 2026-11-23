@@ -24,9 +24,11 @@ interface SelectedLesson {
 interface PublicLessonBrowserProps {
   lessons: PublicLesson[]
   returnTo?: string
+  showForgotPassword?: boolean
+  notice?: string
 }
 
-export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserProps) {
+export function PublicLessonBrowser({ lessons, returnTo, showForgotPassword, notice }: PublicLessonBrowserProps) {
   const [activeFilter, setActiveFilter] = useState<string>("all")
   const [selectedLesson, setSelectedLesson] = useState<SelectedLesson | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -230,7 +232,12 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
                 Enter your email and password to continue.
               </p>
             </div>
-            <SigninForm returnTo={returnTo} />
+            {notice ? (
+              <p className="rounded-md border border-border bg-muted p-3 text-sm" role="status">
+                {notice}
+              </p>
+            ) : null}
+            <SigninForm returnTo={returnTo} showForgotPassword={showForgotPassword} />
           </>
         )}
       </div>
