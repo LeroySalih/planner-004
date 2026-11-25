@@ -106,7 +106,7 @@ psql -U postgres -c "DROP DATABASE \"postgres-feature-name\";"
 ### Authentication & Authorization
 
 Custom session-based auth (not Supabase Auth):
-- Session tokens stored in `planner_session` cookie (1-hour rolling TTL)
+- Session tokens stored in `planner_session` cookie (1-hour rolling TTL). Rolling means activity keeps it alive: `loadSessionProfile` extends `auth_sessions.expires_at` once it is 5 minutes old and sets the cookie where Next.js allows (actions, route handlers); middleware extends the cookie on every GET, since pages cannot set cookies (`src/lib/session-cookie.ts`). An hour idle still signs out. `createSession` deletes rows expired over a day. Tests: `tests/auth/session-rolling.check.ts`.
 - `src/lib/auth.ts`: `getAuthenticatedProfile()`, `requireRole()`, `hasRole()`
 - Role-based access control stored in database, checked via helper functions
 - Bcrypt password hashing with cost factor 10
@@ -1133,7 +1133,8 @@ does not cancel an earlier link. The reset uses the change-password rules
 (trimmed, at least 6 characters, not the default) and checks the token again
 in the action; in one transaction it sets the hash (bcrypt 10), clears
 `must_change_password`, marks the token used, deletes the account's other
-tokens and ends all its `auth_sessions`, then sends the user to
+tokens, ends all its `auth_sessions` and clears its sign-in lock (`clearSigninLock`,
+`src/lib/signin-lock.ts`, the same as a teacher's *Unlock*), then sends the user to
 `/signin?reset=done` (not signed in). `Referrer-Policy: no-referrer` on
 `/reset-password` (`next.config.ts`). Both pages stay open to a signed-in user
 with `must_change_password`. Log lines carry the user id (or "no account") and

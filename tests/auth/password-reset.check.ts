@@ -15,6 +15,7 @@ import {
   resetLinkOrigin,
   resetPasswordWithToken,
 } from '@/lib/password-reset'
+import { SIGNIN_EMAIL_FAILURE_LIMIT, SIGNIN_WINDOW_MINUTES } from '@/lib/signin-lock'
 
 // "Forgot password?" (src/lib/password-reset.ts) against the dev database,
 // with a fake mail transport: no network, no real email. Own test profiles,
@@ -39,6 +40,7 @@ const run = randomBytes(4).toString('hex')
 const ids = { active: `pwreset-active-${run}`, inactive: `pwreset-inactive-${run}`, noEmail: `pwreset-noemail-${run}` }
 const emails = { active: `pwreset-active-${run}@example.test`, inactive: `pwreset-inactive-${run}@example.test` }
 const ipBase = `198.51.${Number.parseInt(run.slice(0, 2), 16)}.${Number.parseInt(run.slice(2, 4), 16)}`
+const otherEmail = `pwreset-other-${run}@example.test`
 const usedIps: string[] = []
 const ip = (label: string) => {
   const value = `${ipBase}-${label}`
@@ -67,12 +69,35 @@ async function addSession(userId: string) {
   )
 }
 
+// Failed sign-ins: enough inside the window to lock, plus one older (audit trail).
+async function addFailedSignins(email: string, count: number, minutesAgo = 1) {
+  for (let i = 0; i < count; i++) {
+    await query(
+      `insert into sign_in_attempts (email, ip, user_id, success, reason, attempted_at)
+       values ($1, null, null, false, 'invalid-password', now() - ($2::int * interval '1 minute'))`,
+      [email, minutesAgo],
+    )
+  }
+}
+const failedSignins = async (email: string, inWindow: boolean) => {
+  const { rows } = await query<{ n: number }>(
+    `select count(*)::int as n from sign_in_attempts
+      where success = false and lower(email) = lower($1)
+        and (attempted_at >= now() - ($2::int * interval '1 minute')) = $3`,
+    [email, SIGNIN_WINDOW_MINUTES, inWindow],
+  )
+  return rows[0].n
+}
+
 async function cleanup() {
   await query('delete from password_reset_tokens where user_id = any($1::text[]) or request_ip = any($2::text[])', [
     Object.values(ids),
     usedIps,
   ])
   await query('delete from auth_sessions where user_id = any($1::text[])', [Object.values(ids)])
+  await query('delete from sign_in_attempts where lower(email) = any($1::text[])', [
+    [...Object.values(emails), otherEmail].map((e) => e.toLowerCase()),
+  ])
   await query('delete from profiles where user_id = any($1::text[])', [Object.values(ids)])
 }
 
@@ -184,6 +209,10 @@ async function main() {
   // Success
   await addSession(ids.active)
   await addSession(ids.active)
+  // Locked: typed in another case, so the clear must ignore case.
+  await addFailedSignins(emails.active.toUpperCase(), SIGNIN_EMAIL_FAILURE_LIMIT)
+  await addFailedSignins(emails.active, 1, SIGNIN_WINDOW_MINUTES + 30)
+  await addFailedSignins(otherEmail, SIGNIN_EMAIL_FAILURE_LIMIT)
   const ok = await resetPasswordWithToken({ token: token1!, password: good, confirmPassword: good })
   check('reset succeeds', ok.ok && ok.userId === ids.active)
   const { rows: profile } = await query<{ password_hash: string; must_change_password: boolean }>(
@@ -202,6 +231,9 @@ async function main() {
   check('later link deleted too', Boolean(token3) && !(await findUsableResetToken(token3!)))
   const { rows: sessions } = await query<{ n: number }>('select count(*)::int as n from auth_sessions where user_id = $1', [ids.active])
   check('all sessions ended', sessions[0].n === 0, String(sessions[0].n))
+  check('sign-in lock cleared', (await failedSignins(emails.active, true)) === 0)
+  check('older failed sign-ins kept (audit)', (await failedSignins(emails.active, false)) === 1)
+  check("another account's lock untouched", (await failedSignins(otherEmail, true)) === SIGNIN_EMAIL_FAILURE_LIMIT)
 
   const again = await resetPasswordWithToken({ token: token1!, password: 'another-pass', confirmPassword: 'another-pass' })
   check('token cannot be used twice', !again.ok && again.reason === 'invalid-token')

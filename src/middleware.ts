@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server"
 
 import { authorizationServerMetadata, protectedResourceMetadata } from "@/lib/oauth/metadata"
 import { publicOrigin } from "@/lib/public-origin"
+import { extendSessionCookie } from "@/lib/session-cookie"
 
 // Self-contained maintenance page (no app assets, so it renders even when the
 // rest of the app is being worked on). Served with HTTP 503 + Retry-After.
@@ -111,11 +112,13 @@ export function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set("x-pathname", pathname + request.nextUrl.search)
 
-  return NextResponse.next({
+  const response = NextResponse.next({
     request: {
       headers: requestHeaders,
     },
   })
+  extendSessionCookie(request, response)
+  return response
 }
 
 export const config = {

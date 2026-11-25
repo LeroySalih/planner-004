@@ -5,10 +5,14 @@ import bcrypt from "bcryptjs"
 
 import { query } from "@/lib/db"
 import { effectiveRoles } from "@/lib/roles"
+import {
+  SESSION_COOKIE,
+  SESSION_TTL_MS,
+  sessionCookieOptions,
+  sessionNeedsRefresh,
+} from "@/lib/session-cookie"
 import type { LessonViewMode } from "@/types"
 
-const SESSION_COOKIE = "planner_session"
-const SESSION_TTL_MS = 60 * 60 * 1000 // 1 hour rolling
 const BCRYPT_COST = 10
 
 export type AuthenticatedProfile = {
@@ -71,19 +75,9 @@ export async function requireRole(role: string, options?: { refreshSessionCookie
   return profile
 }
 
-const COOKIE_SECURE = process.env.NODE_ENV === "production" && !process.env.NEXT_PUBLIC_APP_URL?.startsWith("http://")
-
 async function setSessionCookie(sessionId: string, token: string, expiresAt: Date) {
   const cookieStore = await cookies()
-  cookieStore.set({
-    name: SESSION_COOKIE,
-    value: `${sessionId}.${token}`,
-    httpOnly: true,
-    sameSite: "strict",
-    secure: COOKIE_SECURE,
-    path: "/",
-    expires: expiresAt,
-  })
+  cookieStore.set({ ...sessionCookieOptions(expiresAt), value: `${sessionId}.${token}` })
 }
 
 async function clearSessionCookie() {
@@ -91,15 +85,7 @@ async function clearSessionCookie() {
   // Swallow the write if Next.js rejects it; we still return the readable cookie state above.
   try {
     const cookieStore = await cookies()
-    cookieStore.set({
-      name: SESSION_COOKIE,
-      value: "",
-      httpOnly: true,
-      sameSite: "strict",
-      secure: COOKIE_SECURE,
-      path: "/",
-      maxAge: 0,
-    })
+    cookieStore.set({ ...sessionCookieOptions(new Date(0)), value: "", maxAge: 0 })
   } catch {
     // Best-effort clear; ignore when cookies cannot be mutated in this context.
   }
@@ -149,6 +135,8 @@ export async function createSession(userId: string) {
   const userAgent = headerList.get("user-agent") ?? null
 
   const sessionId = randomUUID()
+  // Housekeeping: nothing else deletes sessions that simply ran out.
+  await query("delete from auth_sessions where expires_at < now() - interval '1 day'")
   await query(
     `insert into auth_sessions (session_id, user_id, token_hash, expires_at, ip, user_agent)
      values ($1, $2, $3, $4, $5, $6)`,
@@ -206,6 +194,16 @@ async function readProfile(userId: string): Promise<AuthenticatedProfile | null>
   }
 }
 
+// School networks change a pupil's IP often; log a session's mismatch once per
+// process, not on every request.
+const mismatchLogged = new Set<string>()
+function noteMismatchOnce(sessionId: string): boolean {
+  if (mismatchLogged.has(sessionId)) return false
+  if (mismatchLogged.size >= 5000) mismatchLogged.clear()
+  mismatchLogged.add(sessionId)
+  return true
+}
+
 async function loadSessionProfile(refreshSessionCookie = false): Promise<AuthenticatedProfile | null> {
   const cookieStore = await cookies()
   const parsed = parseSessionCookie(cookieStore.get(SESSION_COOKIE)?.value ?? null)
@@ -252,7 +250,7 @@ async function loadSessionProfile(refreshSessionCookie = false): Promise<Authent
     return null
   }
 
-  if (!ipMatches || !userAgentMatches) {
+  if ((!ipMatches || !userAgentMatches) && noteMismatchOnce(sessionId)) {
     console.warn("[auth] Session IP/UA mismatch (allowing for now)", {
       sessionId,
       expectedIp: session.ip,
@@ -262,7 +260,8 @@ async function loadSessionProfile(refreshSessionCookie = false): Promise<Authent
     })
   }
 
-  if (refreshSessionCookie) {
+  // Rolling: activity keeps the session alive (see session-cookie.ts).
+  if (refreshSessionCookie || sessionNeedsRefresh(expiresAt, now)) {
     await refreshSession(sessionId, token)
   }
 

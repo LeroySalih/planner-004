@@ -7,6 +7,12 @@ import { z } from "zod"
 import { query } from "@/lib/db"
 import { isDefaultPassword } from "@/lib/default-password"
 import {
+  clearSigninLock,
+  SIGNIN_EMAIL_FAILURE_LIMIT,
+  SIGNIN_IP_FAILURE_LIMIT,
+  SIGNIN_WINDOW_MINUTES,
+} from "@/lib/signin-lock"
+import {
   createSession,
   endSession,
   getAuthenticatedProfile,
@@ -41,9 +47,6 @@ const AuthResultSchema = z.object({
 type AuthResult = z.infer<typeof AuthResultSchema>
 
 const CSRF_COOKIE_NAME = "planner_csrf_token"
-const SIGNIN_WINDOW_MINUTES = 15
-const SIGNIN_EMAIL_FAILURE_LIMIT = 5
-const SIGNIN_IP_FAILURE_LIMIT = 25
 type SigninThrottleResult = { blocked: boolean; reason: "email-limit" | "ip-limit" | null }
 
 const UnlockPupilInputSchema = z.object({
@@ -579,15 +582,7 @@ export async function clearSigninThrottleForPupilAction(
           return { success: false, error: "Pupil account not found." }
         }
 
-        await query(
-          `
-            delete from sign_in_attempts
-            where success = false
-              and lower(email) = $1
-              and attempted_at >= now() - ($2::int * interval '1 minute')
-          `,
-          [email, SIGNIN_WINDOW_MINUTES],
-        )
+        await clearSigninLock(email)
 
         return { success: true, error: null }
       } catch (error) {

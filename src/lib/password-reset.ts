@@ -6,6 +6,7 @@ import { hashPassword } from "@/lib/auth"
 import { query, withDbClient } from "@/lib/db"
 import { isDefaultPassword } from "@/lib/default-password"
 import { emailConfigStatus, sendEmail, type SendEmailOptions } from "@/lib/email/mailer"
+import { clearSigninLock } from "@/lib/signin-lock"
 
 // "Forgot password?": a one-time link by email, then a new password.
 // Tokens are stored as a sha256 hash only (password_reset_tokens, migration
@@ -195,7 +196,8 @@ export const INVALID_RESET_LINK_MESSAGE = "This link does not work. It is used, 
  * Sets a new password from a reset link. The same rules as /change-password
  * (trimmed, at least 6 characters, not the default). In one transaction: the
  * new hash, must_change_password cleared, this token used, the account's other
- * tokens deleted, all its sessions ended. It does not sign the user in.
+ * tokens deleted, all its sessions ended, its sign-in lock cleared. It does not
+ * sign the user in.
  */
 export async function resetPasswordWithToken(input: {
   token: string
@@ -218,8 +220,8 @@ export async function resetPasswordWithToken(input: {
     await client.query("begin")
     try {
       // Checked again under the row lock, so two submits of one link cannot both win.
-      const { rows } = await client.query<{ user_id: string }>(
-        `select t.user_id
+      const { rows } = await client.query<{ user_id: string; email: string | null }>(
+        `select t.user_id, p.email
            from password_reset_tokens t
            join profiles p on p.user_id = t.user_id
           where t.token_hash = $1 and t.used_at is null and t.expires_at > now() and p.active
@@ -241,6 +243,7 @@ export async function resetPasswordWithToken(input: {
         tokenHash,
       ])
       await client.query("delete from auth_sessions where user_id = $1", [found])
+      if (rows[0].email) await clearSigninLock(rows[0].email, client)
       await client.query("commit")
       return found
     } catch (error) {
